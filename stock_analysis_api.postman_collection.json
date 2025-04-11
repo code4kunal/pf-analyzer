@@ -1,0 +1,172 @@
+{
+	"info": {
+		"_postman_id": "stock-analysis-api",
+		"name": "Stock Analysis API",
+		"description": "API collection for stock data management and analysis",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Load Historical Data",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"days\": 30\n}"
+				},
+				"url": {
+					"raw": "http://localhost:8000/load-historical-data",
+					"protocol": "http",
+					"host": ["localhost"],
+					"port": "8000",
+					"path": ["load-historical-data"]
+				},
+				"description": "Load historical data for specified number of days"
+			},
+			"response": [
+				{
+					"name": "Success Response",
+					"originalRequest": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"days\": 30\n}"
+						},
+						"url": {
+							"raw": "http://localhost:8000/load-historical-data"
+						}
+					},
+					"status": "Success",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [],
+					"body": "{\n    \"status\": \"success\",\n    \"message\": \"Successfully loaded 30 days of historical data\",\n    \"file_path\": \"/Users/kunalsaxena/stocks/stock_data/historical_data_20240315.csv\"\n}"
+				}
+			]
+		},
+		{
+			"name": "Add Today's Data",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"file_path\": \"/Users/kunalsaxena/stocks/stock_data/historical_data_20240315.csv\"\n}"
+				},
+				"url": {
+					"raw": "http://localhost:8000/add-todays-data",
+					"protocol": "http",
+					"host": ["localhost"],
+					"port": "8000",
+					"path": ["add-todays-data"]
+				},
+				"description": "Add today's data to existing historical data file"
+			},
+			"response": [
+				{
+					"name": "Success Response",
+					"originalRequest": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"file_path\": \"/Users/kunalsaxena/stocks/stock_data/historical_data_20240315.csv\"\n}"
+						},
+						"url": {
+							"raw": "http://localhost:8000/add-todays-data"
+						}
+					},
+					"status": "Success",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [],
+					"body": "{\n    \"status\": \"success\",\n    \"message\": \"Successfully added today's data\"\n}"
+				}
+			]
+		},
+		{
+			"name": "Run Backtest",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"date\": \"2024-01-01\"\n}"
+				},
+				"url": {
+					"raw": "http://localhost:8000/run-backtest",
+					"protocol": "http",
+					"host": ["localhost"],
+					"port": "8000",
+					"path": ["run-backtest"]
+				},
+				"description": "Run backtest for a specific date"
+			},
+			"response": [
+				{
+					"name": "Success Response",
+					"originalRequest": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"date\": \"2024-01-01\"\n}"
+						},
+						"url": {
+							"raw": "http://localhost:8000/run-backtest"
+						}
+					},
+					"status": "Success",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [],
+					"body": "{\n    \"status\": \"success\",\n    \"date\": \"2024-01-01\",\n    \"results\": [\n        {\n            \"Stock\": \"RELIANCE\",\n            \"Rank\": 1,\n            \"Latest_Price\": 2500.50,\n            \"1M_Return_Normalized\": 95.25,\n            \"3M_Return_Normalized\": 88.75,\n            \"6M_Return_Normalized\": 82.50,\n            \"Strength_Score_Normalized\": 90.25,\n            \"20_MA\": 2450.75,\n            \"20_MAV\": 1000000,\n            \"Liquidity\": 15000000\n        }\n    ]\n}"
+				}
+			]
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8000",
+			"type": "string"
+		}
+	]
+} 
