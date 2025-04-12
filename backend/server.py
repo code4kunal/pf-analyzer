@@ -1,22 +1,19 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
+import os
 import pandas as pd
 import numpy as np
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timedelta
-import os
-import json
-import hashlib
-from typing import List, Dict, Any
 import logging
-from dotenv import load_dotenv
+import json
+import pickle
+from pathlib import Path
 
-# Configure logging
+# Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Load environment variables
-load_dotenv()
-
+# Initialize FastAPI app
 app = FastAPI()
 
 # Add CORS middleware with development configuration
@@ -31,7 +28,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
     expose_headers=["*"],
     max_age=3600,
@@ -47,37 +44,175 @@ async def add_cors_header(request, call_next):
     response.headers["Access-Control-Allow-Credentials"] = "true"
     return response
 
-# Get base directory from environment variable or use current directory
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # Go up one level to /Users/kunalsaxena/stocks
+# Get the base directory
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # Go up one level to get the root directory
+
+# Cache directory
 CACHE_DIR = os.path.join(BASE_DIR, 'stock_data', 'cache')
-
-def get_cache_path(date):
-    """Generate cache file path based on date"""
-    date_str = date.strftime('%Y-%m-%d')
-    hash_object = hashlib.md5(date_str.encode())
-    filename = f"strength_scores_{hash_object.hexdigest()}.json"
-    return os.path.join(CACHE_DIR, filename)
-
-def load_from_cache(date):
-    """Load data from cache if available"""
-    cache_path = get_cache_path(date)
-    if os.path.exists(cache_path):
-        try:
-            with open(cache_path, 'r') as f:
-                return json.load(f)
-        except Exception as e:
-            logger.error(f"Error loading cache: {e}")
-    return None
+os.makedirs(CACHE_DIR, exist_ok=True)
 
 def save_to_cache(date, data):
-    """Save data to cache"""
-    cache_path = get_cache_path(date)
-    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+    """Save data to cache file"""
+    cache_file = os.path.join(CACHE_DIR, f"{date}.pkl")
     try:
-        with open(cache_path, 'w') as f:
-            json.dump(data, f)
+        with open(cache_file, 'wb') as f:
+            pickle.dump(data, f)
+        logger.info(f"Saved data to cache: {cache_file}")
     except Exception as e:
-        logger.error(f"Error saving cache: {e}")
+        logger.error(f"Error saving to cache: {e}")
+
+def load_from_cache(date):
+    """Load data from cache file"""
+    cache_file = os.path.join(CACHE_DIR, f"{date}.pkl")
+    try:
+        if os.path.exists(cache_file):
+            with open(cache_file, 'rb') as f:
+                data = pickle.load(f)
+            logger.info(f"Loaded data from cache: {cache_file}")
+            return data
+    except Exception as e:
+        logger.error(f"Error loading from cache: {e}")
+    return None
+
+def calculate_strength_scores(df, date):
+    """
+    Calculate strength scores for stocks based on their returns over different time periods.
+    
+    Args:
+        df (pd.DataFrame): DataFrame containing stock data
+        date (datetime.date): The date for which to calculate strength scores
+        
+    Returns:
+        dict: Dictionary containing the date and list of top stocks with their metrics
+    """
+    # Filter data for the specified date range
+    start_date = date - timedelta(days=180)  # 6 months
+    filtered_data = df[(df['Date'] >= start_date) & (df['Date'] <= date)]
+    
+    logger.info(f"Using data from {start_date.strftime('%Y-%m-%d')} to {date.strftime('%Y-%m-%d')}")
+    logger.info(f"Total records: {len(filtered_data)}")
+    logger.info(f"Unique stocks: {len(filtered_data['Stock'].unique())}")
+
+    try:
+        # Create a results DataFrame
+        results = pd.DataFrame()
+        
+        # Calculate performance metrics for each stock
+        for stock in filtered_data['Stock'].unique():
+            stock_data = filtered_data[filtered_data['Stock'] == stock].sort_values('Date')
+            
+            if len(stock_data) < 20:  # Need at least 20 days for moving averages
+                continue
+                
+            # Get the latest price
+            latest_price = stock_data.iloc[-1]['Close']
+            
+            # Calculate returns for different periods
+            try:
+                # 1-month return
+                one_month_ago = date - timedelta(days=30)
+                one_month_data = stock_data[stock_data['Date'] >= one_month_ago]
+                if len(one_month_data) > 0:
+                    one_month_return = (latest_price / one_month_data.iloc[0]['Close'] - 1) * 100
+                else:
+                    one_month_return = 0
+                    
+                # 3-month return
+                three_months_ago = date - timedelta(days=90)
+                three_month_data = stock_data[stock_data['Date'] >= three_months_ago]
+                if len(three_month_data) > 0:
+                    three_month_return = (latest_price / three_month_data.iloc[0]['Close'] - 1) * 100
+                else:
+                    three_month_return = 0
+                    
+                # 6-month return
+                six_months_ago = date - timedelta(days=180)
+                six_month_data = stock_data[stock_data['Date'] >= six_months_ago]
+                if len(six_month_data) > 0:
+                    six_month_return = (latest_price / six_month_data.iloc[0]['Close'] - 1) * 100
+                else:
+                    six_month_return = 0
+                
+                # Calculate moving averages and liquidity
+                ma_20 = stock_data['Close'].rolling(20).mean().iloc[-1]
+                mav_20 = stock_data['Volume'].rolling(20).mean().iloc[-1]
+                liquidity = ma_20 * mav_20
+                
+                # Calculate weighted strength score
+                strength_score = (one_month_return * 0.5) + (three_month_return * 0.3) + (six_month_return * 0.2)
+                
+                # Add to results
+                results = pd.concat([results, pd.DataFrame({
+                    'Stock': [stock],
+                    '1M_Return': [one_month_return],
+                    '3M_Return': [three_month_return],
+                    '6M_Return': [six_month_return],
+                    'Strength_Score': [strength_score],
+                    'Latest_Price': [latest_price],
+                    '20_MA': [ma_20],
+                    '20_MAV': [mav_20],
+                    'Liquidity': [liquidity]
+                })])
+                
+            except Exception as e:
+                logger.error(f"Error calculating returns for {stock}: {str(e)}")
+                continue
+        
+        # Normalize scores to 100
+        def normalize_to_100(series):
+            min_val = series.min()
+            max_val = series.max()
+            if max_val == min_val:
+                return series * 0  # Return zeros if all values are the same
+            return ((series - min_val) / (max_val - min_val) * 100).apply(np.ceil)
+        
+        # Normalize all return columns and strength score
+        results['1M_Return_Normalized'] = normalize_to_100(results['1M_Return'])
+        results['3M_Return_Normalized'] = normalize_to_100(results['3M_Return'])
+        results['6M_Return_Normalized'] = normalize_to_100(results['6M_Return'])
+        results['Strength_Score_Normalized'] = normalize_to_100(results['Strength_Score'])
+        
+        # Filter stocks with liquidity >= 10,000,000
+        results = results[results['Liquidity'] >= 10000000]
+        
+        # Sort by normalized strength score and take top 50
+        results = results.sort_values('Strength_Score_Normalized', ascending=False).head(50)
+        
+        # Add rank
+        results['Rank'] = range(1, len(results) + 1)
+        
+        # Format all numeric columns to 2 decimal places
+        numeric_columns = ['Latest_Price', '1M_Return_Normalized', '3M_Return_Normalized', 
+                          '6M_Return_Normalized', 'Strength_Score_Normalized', 
+                          '20_MA', '20_MAV', 'Liquidity']
+        
+        for col in numeric_columns:
+            results[col] = results[col].round(2)
+        
+        # Prepare the response
+        result = {
+            "date": date.strftime("%Y-%m-%d"),
+            "stocks": []
+        }
+        
+        for _, stock in results.iterrows():
+            result["stocks"].append({
+                "Stock": stock['Stock'],
+                "Rank": stock['Rank'],
+                "Latest_Price": stock['Latest_Price'],
+                "1M_Return_Normalized": stock['1M_Return_Normalized'],
+                "3M_Return_Normalized": stock['3M_Return_Normalized'],
+                "6M_Return_Normalized": stock['6M_Return_Normalized'],
+                "Strength_Score_Normalized": stock['Strength_Score_Normalized'],
+                "20_MA": stock['20_MA'],
+                "20_MAV": stock['20_MAV'],
+                "Liquidity": stock['Liquidity']
+            })
+            
+        return result
+    except Exception as e:
+        logger.error(f"Error calculating strength scores: {e}")
+        return {"error": "An error occurred while calculating strength scores"}
 
 @app.get("/api/stock-data")
 async def get_stock_data():
@@ -106,78 +241,23 @@ async def get_stock_data():
             logger.error(f"Error reading CSV file: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-        # Convert Date column to datetime
-        df['Date'] = pd.to_datetime(df['Date'])
+        # Convert Date column to date only (no timezone)
+        df['Date'] = pd.to_datetime(df['Date']).dt.date
 
         # Get the latest date in the data (up to today)
-        latest_date = df['Date'].max().date()
+        latest_date = df['Date'].max()
         if latest_date > today:
             latest_date = today
         logger.info(f"Latest available date in data (up to today): {latest_date}")
 
-        # Get data for the latest date
-        latest_data = df[df['Date'].dt.date == latest_date]
-        logger.info("Sample of 5 records from latest date:")
-        logger.info(latest_data[['Date', 'Stock', 'Close']].head())
-
-        # Calculate strength scores
-        start_date = latest_date - timedelta(days=180)  # 6 months
-        filtered_data = df[(df['Date'] >= start_date) & (df['Date'] <= latest_date)]
-        
-        logger.info(f"Using data from {start_date.strftime('%Y-%m-%d')} to {latest_date.strftime('%Y-%m-%d')}")
-        logger.info(f"Total records: {len(filtered_data)}")
-        logger.info(f"Unique stocks: {len(filtered_data['Stock'].unique())}")
-        
-        # Calculate returns
-        filtered_data['Returns'] = filtered_data.groupby('Stock')['Close'].pct_change()
-        
-        # Calculate normalized returns
-        for period in [20, 60, 120]:  # 1M, 3M, 6M
-            filtered_data[f'{period}D_Return'] = filtered_data.groupby('Stock')['Returns'].rolling(period).sum().reset_index(0, drop=True)
-        
-        # Normalize returns
-        for period in [20, 60, 120]:
-            filtered_data[f'{period}D_Return_Normalized'] = (
-                (filtered_data[f'{period}D_Return'] - filtered_data[f'{period}D_Return'].mean()) /
-                filtered_data[f'{period}D_Return'].std()
-            )
-        
-        # Calculate strength score
-        filtered_data['Strength_Score'] = (
-            filtered_data['20D_Return_Normalized'] * 0.4 +
-            filtered_data['60D_Return_Normalized'] * 0.3 +
-            filtered_data['120D_Return_Normalized'] * 0.3
-        )
-        
-        # Get top 50 stocks by strength score
-        top_stocks = filtered_data[filtered_data['Date'] == latest_date].nlargest(50, 'Strength_Score')
-        
-        # Prepare response
-        result = {
-            "date": latest_date.strftime('%Y-%m-%d'),
-            "stocks": []
-        }
-        
-        for _, stock in top_stocks.iterrows():
-            result["stocks"].append({
-                "Stock": stock['Stock'],
-                "Rank": len(result["stocks"]) + 1,
-                "Latest_Price": stock['Close'],
-                "1M_Return_Normalized": stock['20D_Return_Normalized'],
-                "3M_Return_Normalized": stock['60D_Return_Normalized'],
-                "6M_Return_Normalized": stock['120D_Return_Normalized'],
-                "Strength_Score_Normalized": stock['Strength_Score'],
-                "20_MA": stock['Close'],  # Using latest price as MA for now
-                "20_MAV": stock['Close'],  # Using latest price as MAV for now
-                "Liquidity": 1000000  # Placeholder value
-            })
+        # Calculate strength scores using the helper function
+        result = calculate_strength_scores(df, latest_date)
         
         # Save to cache
         save_to_cache(today, result)
-        logger.info("Saved results to cache")
         
         return result
-        
+
     except Exception as e:
         logger.error(f"Error in get_stock_data: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -185,10 +265,9 @@ async def get_stock_data():
 @app.get("/api/run-backtest")
 async def run_backtest(date: str):
     try:
-        logger.info(f"Running backtest for date: {date}")
-        
         # Parse the date
         backtest_date = datetime.strptime(date, '%Y-%m-%d').date()
+        logger.info(f"Running backtest for date: {backtest_date}")
         
         # Check cache first
         cached_data = load_from_cache(backtest_date)
@@ -201,71 +280,21 @@ async def run_backtest(date: str):
         logger.info(f"Reading CSV file for backtest: {csv_path}")
         
         df = pd.read_csv(csv_path)
-        df['Date'] = pd.to_datetime(df['Date'])
+        # Convert Date column to date only (no timezone)
+        df['Date'] = pd.to_datetime(df['Date']).dt.date
         
-        # Filter data for the backtest date
-        backtest_data = df[df['Date'].dt.date == backtest_date]
-        
-        if backtest_data.empty:
-            raise HTTPException(status_code=404, detail=f"No data found for date {date}")
-        
-        # Calculate strength scores (similar to get_stock_data)
-        start_date = backtest_date - timedelta(days=180)
-        filtered_data = df[(df['Date'] >= start_date) & (df['Date'] <= backtest_date)]
-        
-        # Calculate returns and normalized returns
-        filtered_data['Returns'] = filtered_data.groupby('Stock')['Close'].pct_change()
-        
-        for period in [20, 60, 120]:
-            filtered_data[f'{period}D_Return'] = filtered_data.groupby('Stock')['Returns'].rolling(period).sum().reset_index(0, drop=True)
-            filtered_data[f'{period}D_Return_Normalized'] = (
-                (filtered_data[f'{period}D_Return'] - filtered_data[f'{period}D_Return'].mean()) /
-                filtered_data[f'{period}D_Return'].std()
-            )
-        
-        # Calculate strength score
-        filtered_data['Strength_Score'] = (
-            filtered_data['20D_Return_Normalized'] * 0.4 +
-            filtered_data['60D_Return_Normalized'] * 0.3 +
-            filtered_data['120D_Return_Normalized'] * 0.3
-        )
-        
-        # Get top 50 stocks by strength score
-        top_stocks = filtered_data[filtered_data['Date'] == backtest_date].nlargest(50, 'Strength_Score')
-        
-        # Prepare response
-        result = {
-            "date": date,
-            "stocks": []
-        }
-        
-        for _, stock in top_stocks.iterrows():
-            result["stocks"].append({
-                "Stock": stock['Stock'],
-                "Rank": len(result["stocks"]) + 1,
-                "Latest_Price": stock['Close'],
-                "1M_Return_Normalized": stock['20D_Return_Normalized'],
-                "3M_Return_Normalized": stock['60D_Return_Normalized'],
-                "6M_Return_Normalized": stock['120D_Return_Normalized'],
-                "Strength_Score_Normalized": stock['Strength_Score'],
-                "20_MA": stock['Close'],
-                "20_MAV": stock['Close'],
-                "Liquidity": 1000000
-            })
+        # Calculate strength scores using the helper function
+        result = calculate_strength_scores(df, backtest_date)
         
         # Save to cache
         save_to_cache(backtest_date, result)
-        logger.info("Saved backtest results to cache")
         
         return result
-        
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+
     except Exception as e:
-        logger.error(f"Error in run_backtest: {str(e)}")
+        logger.error(f"Error in run_backtest: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv('PORT', 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port) 
+    uvicorn.run(app, host="0.0.0.0", port=8000) 
