@@ -9,6 +9,7 @@ import { AuthProvider } from '@/context/AuthContext';
 const tabs = [
   { name: 'Analytics', href: '/dashboard/analytics', roles: ['admin', 'test'] },
   { name: 'Screener', href: '/dashboard/screener', roles: ['admin', 'test'] },
+  { name: 'Backtest', href: '/backtest', roles: ['admin', 'test'] },
   { name: 'Data', href: '/dashboard/data', roles: ['admin'] },
 ];
 

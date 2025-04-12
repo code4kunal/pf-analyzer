@@ -8,6 +8,10 @@ import logging
 import json
 import pickle
 from pathlib import Path
+import pytz
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+from data_fetcher import read_historical_data, clear_historical_data, fetch_all_stocks_data
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -50,6 +54,9 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # Go up 
 # Cache directory
 CACHE_DIR = os.path.join(BASE_DIR, 'stock_data', 'cache')
 os.makedirs(CACHE_DIR, exist_ok=True)
+
+# Initialize scheduler
+scheduler = BackgroundScheduler()
 
 def save_to_cache(date, data):
     """Save data to cache file"""
@@ -294,6 +301,101 @@ async def run_backtest(date: str):
     except Exception as e:
         logger.error(f"Error in run_backtest: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/add-todays-data")
+async def add_todays_data(file_path: str):
+    """
+    Add today's data to existing historical data file.
+    If data for today already exists, it will be overwritten with the latest data.
+    
+    Args:
+        file_path (str): Path to the existing data file
+        
+    Returns:
+        dict: Status message
+    """
+    try:
+        # Check if file exists
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="File not found")
+            
+        # Read existing data
+        df = read_historical_data(file_path)
+        if df is None:
+            raise HTTPException(status_code=500, detail="Failed to read existing data")
+            
+        # Get today's date in IST
+        today = datetime.now(IST).date()
+        
+        # Remove existing data for today if it exists
+        df = df[df['Date'].dt.date != today]
+        
+        # Fetch today's data
+        fetch_all_stocks_data(file_path, days=1, append=True)
+        
+        return {
+            "status": "success",
+            "message": "Successfully updated today's data"
+        }
+    except Exception as e:
+        logger.error(f"Error adding today's data: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/load-historical-data")
+async def load_historical_data(days: int):
+    """
+    Load historical data for specified number of days.
+    
+    Args:
+        days (int): Number of days of historical data to fetch
+        
+    Returns:
+        dict: Status message and file path
+    """
+    try:
+        # Generate filename with current date
+        current_date = datetime.now(IST).strftime("%Y%m%d")
+        data_file = os.path.join(BASE_DIR, 'stock_data', f'historical_data_{current_date}.csv')
+        
+        # Clear existing data and fetch new data
+        clear_historical_data(data_file)
+        fetch_all_stocks_data(data_file, days=days)
+        
+        return {
+            "status": "success",
+            "message": f"Successfully loaded {days} days of historical data",
+            "file_path": data_file
+        }
+    except Exception as e:
+        logger.error(f"Error loading historical data: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+def refresh_daily_data():
+    """
+    Scheduled job to refresh daily data at 8 PM IST.
+    """
+    try:
+        # Get current date in IST
+        current_time = datetime.now(IST)
+        logger.info(f"Running daily data refresh at {current_time}")
+        
+        # Add today's data
+        add_todays_data(DEFAULT_DATA_FILE)
+        logger.info(f"Daily data refresh completed at {current_time}")
+    except Exception as e:
+        logger.error(f"Error in daily data refresh: {str(e)}")
+
+# Schedule daily data refresh at 8 PM IST
+scheduler.add_job(
+    refresh_daily_data,
+    trigger=CronTrigger(hour=20, minute=0, timezone=IST),
+    id='daily_data_refresh',
+    name='Refresh daily stock data',
+    replace_existing=True
+)
+
+# Start the scheduler
+scheduler.start()
 
 if __name__ == "__main__":
     import uvicorn
