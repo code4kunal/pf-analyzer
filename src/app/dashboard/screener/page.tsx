@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { useTable, useSortBy } from 'react-table';
+import { useTable, useSortBy, Column } from 'react-table';
 
 interface StockData {
   Stock: string;
@@ -11,9 +11,10 @@ interface StockData {
   '1M_Return_Normalized': number;
   '3M_Return_Normalized': number;
   '6M_Return_Normalized': number;
-  Strength_Score_Normalized: number;
-  '20_MA': number;
-  '20_MAV': number;
+  'Strength_Score_Normalized': number;
+  Industry: string;
+  Industry_Rank: number;
+  Industry_Group: number;
   Liquidity: number;
 }
 
@@ -24,16 +25,17 @@ export default function ScreenerPage() {
   const [backtestResults, setBacktestResults] = useState<StockData[]>([]);
   const [showBacktest, setShowBacktest] = useState(false);
 
-  const columns = [
-    { Header: 'Stock', accessor: 'Stock' },
+  const columns: Column<StockData>[] = [
     { Header: 'Rank', accessor: 'Rank' },
+    { Header: 'Stock', accessor: 'Stock' },
+    { Header: 'Strength Score', accessor: 'Strength_Score_Normalized' },
     { Header: 'Latest Price', accessor: 'Latest_Price' },
     { Header: '1M Return', accessor: '1M_Return_Normalized' },
     { Header: '3M Return', accessor: '3M_Return_Normalized' },
     { Header: '6M Return', accessor: '6M_Return_Normalized' },
-    { Header: 'Strength Score', accessor: 'Strength_Score_Normalized' },
-    { Header: '20 MA', accessor: '20_MA' },
-    { Header: '20 MAV', accessor: '20_MAV' },
+    { Header: 'Industry', accessor: 'Industry' },
+    { Header: 'Industry Rank', accessor: 'Industry_Rank' },
+    { Header: 'Group Size', accessor: 'Industry_Group' },
     { Header: 'Liquidity', accessor: 'Liquidity' },
   ];
 
@@ -138,13 +140,23 @@ export default function ScreenerPage() {
               <thead className="bg-gray-50">
                 {headerGroups.map((headerGroup) => (
                   <tr {...headerGroup.getHeaderGroupProps()}>
-                    {headerGroup.headers.map((column) => (
+                    {headerGroup.headers.map((column: any) => (
                       <th
                         {...column.getHeaderProps(column.getSortByToggleProps())}
-                        className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                        className={`
+                          px-6 
+                          py-3 
+                          text-left 
+                          text-xs 
+                          font-medium 
+                          text-gray-500 
+                          uppercase 
+                          tracking-wider 
+                          ${column.isSorted ? 'bg-gray-200' : ''}
+                        `}
                       >
                         {column.render('Header')}
-                        <span>
+                        <span className="ml-2">
                           {column.isSorted
                             ? column.isSortedDesc
                               ? ' 🔽'
@@ -163,7 +175,7 @@ export default function ScreenerPage() {
                 {rows.map((row) => {
                   prepareRow(row);
                   return (
-                    <tr {...row.getRowProps()}>
+                    <tr {...row.getRowProps()} className="hover:bg-gray-50">
                       {row.cells.map((cell) => (
                         <td
                           {...cell.getCellProps()}

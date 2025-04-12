@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { useTable } from 'react-table';
+import { useTable, Column } from 'react-table';
 import './App.css';
 
 interface StockData {
@@ -35,18 +35,58 @@ function App() {
     fetchStocks();
   }, []);
 
-  const columns = React.useMemo(
+  const columns = React.useMemo<Column<StockData>[]>(
     () => [
-      { Header: 'Stock', accessor: 'Stock' },
-      { Header: 'Price', accessor: 'Latest_Price' },
-      { Header: '1M Return', accessor: '1M_Return' },
-      { Header: '3M Return', accessor: '3M_Return' },
-      { Header: '6M Return', accessor: '6M_Return' },
-      { Header: 'Volume', accessor: 'Volume' },
-      { Header: 'Strength Score', accessor: 'Strength_Score' },
-      { Header: '20 MA', accessor: '20_MA' },
-      { Header: '50 MA', accessor: '50_MA' },
-      { Header: '200 MA', accessor: '200_MA' },
+      { 
+        Header: 'Stock', 
+        accessor: 'Stock',
+        Cell: ({ value }) => value
+      },
+      { 
+        Header: 'Price', 
+        accessor: 'Latest_Price',
+        Cell: ({ value }) => value.toFixed(2)
+      },
+      { 
+        Header: '1M Return', 
+        accessor: '1M_Return',
+        Cell: ({ value }) => `${(value * 100).toFixed(2)}%`
+      },
+      { 
+        Header: '3M Return', 
+        accessor: '3M_Return',
+        Cell: ({ value }) => `${(value * 100).toFixed(2)}%`
+      },
+      { 
+        Header: '6M Return', 
+        accessor: '6M_Return',
+        Cell: ({ value }) => `${(value * 100).toFixed(2)}%`
+      },
+      { 
+        Header: 'Volume', 
+        accessor: 'Volume',
+        Cell: ({ value }) => value.toLocaleString()
+      },
+      { 
+        Header: 'Strength Score', 
+        accessor: 'Strength_Score',
+        Cell: ({ value }) => value.toFixed(2)
+      },
+      { 
+        Header: '20 MA', 
+        accessor: '20_MA',
+        Cell: ({ value }) => value.toFixed(2)
+      },
+      { 
+        Header: '50 MA', 
+        accessor: '50_MA',
+        Cell: ({ value }) => value.toFixed(2)
+      },
+      { 
+        Header: '200 MA', 
+        accessor: '200_MA',
+        Cell: ({ value }) => value.toFixed(2)
+      },
     ],
     []
   );
