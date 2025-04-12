@@ -12,6 +12,10 @@ import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from data_fetcher import read_historical_data, clear_historical_data, fetch_all_stocks_data
+from typing import List, Dict, Any
+
+# Define IST timezone
+IST = pytz.timezone('Asia/Kolkata')
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -52,34 +56,38 @@ async def add_cors_header(request, call_next):
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # Go up one level to get the root directory
 
 # Cache directory
-CACHE_DIR = os.path.join(BASE_DIR, 'stock_data', 'cache')
+CACHE_DIR = os.path.join('backend', 'stock_data', 'cache')
 os.makedirs(CACHE_DIR, exist_ok=True)
+
+# Historical data file path
+HISTORICAL_DATA_PATH = '/Users/kunalsaxena/stocks/backend/stock_data/historical_data.csv'
 
 # Initialize scheduler
 scheduler = BackgroundScheduler()
 
-def save_to_cache(date, data):
-    """Save data to cache file"""
-    cache_file = os.path.join(CACHE_DIR, f"{date}.pkl")
+def save_to_cache(filename: str, data: Any) -> None:
+    """Save data to cache file."""
     try:
-        with open(cache_file, 'wb') as f:
+        filepath = os.path.join(CACHE_DIR, filename)
+        with open(filepath, 'wb') as f:
             pickle.dump(data, f)
-        logger.info(f"Saved data to cache: {cache_file}")
+        logger.info(f"Data saved to cache: {filepath}")
     except Exception as e:
-        logger.error(f"Error saving to cache: {e}")
+        logger.error(f"Error saving to cache: {str(e)}")
 
-def load_from_cache(date):
-    """Load data from cache file"""
-    cache_file = os.path.join(CACHE_DIR, f"{date}.pkl")
+def load_from_cache(filename: str) -> Any:
+    """Load data from cache file."""
     try:
-        if os.path.exists(cache_file):
-            with open(cache_file, 'rb') as f:
+        filepath = os.path.join(CACHE_DIR, filename)
+        if os.path.exists(filepath):
+            with open(filepath, 'rb') as f:
                 data = pickle.load(f)
-            logger.info(f"Loaded data from cache: {cache_file}")
+            logger.info(f"Data loaded from cache: {filepath}")
             return data
+        return None
     except Exception as e:
-        logger.error(f"Error loading from cache: {e}")
-    return None
+        logger.error(f"Error loading from cache: {str(e)}")
+        return None
 
 def calculate_strength_scores(df, date):
     """
@@ -229,21 +237,20 @@ async def get_stock_data():
         logger.info(f"Today's date: {today}")
 
         # Check cache first
-        cached_data = load_from_cache(today)
+        cached_data = load_from_cache(f"{today}.pkl")
         if cached_data:
             logger.info("Using cached data")
             return cached_data
 
         # Read historical data
-        csv_path = os.path.join(BASE_DIR, 'stock_data', 'historical_data.csv')
-        logger.info(f"Looking for CSV file at: {csv_path}")
+        logger.info(f"Looking for CSV file at: {HISTORICAL_DATA_PATH}")
         logger.info("Reading CSV file...")
         try:
-            df = pd.read_csv(csv_path)
+            df = pd.read_csv(HISTORICAL_DATA_PATH)
             logger.info(f"CSV loaded with {len(df)} rows")
         except FileNotFoundError:
-            logger.error(f"File not found at: {csv_path}")
-            raise HTTPException(status_code=500, detail=f"Historical data file not found at {csv_path}")
+            logger.error(f"File not found at: {HISTORICAL_DATA_PATH}")
+            raise HTTPException(status_code=500, detail=f"Historical data file not found at {HISTORICAL_DATA_PATH}")
         except Exception as e:
             logger.error(f"Error reading CSV file: {e}")
             raise HTTPException(status_code=500, detail=str(e))
@@ -261,7 +268,7 @@ async def get_stock_data():
         result = calculate_strength_scores(df, latest_date)
         
         # Save to cache
-        save_to_cache(today, result)
+        save_to_cache(f"{today}.pkl", result)
         
         return result
 
@@ -276,34 +283,49 @@ async def run_backtest(date: str):
         backtest_date = datetime.strptime(date, '%Y-%m-%d').date()
         logger.info(f"Running backtest for date: {backtest_date}")
         
+        # Check if the date is in the future
+        today = datetime.now(IST).date()
+        if backtest_date > today:
+            error_msg = f"Cannot backtest future dates. Selected date: {backtest_date}, Today: {today}"
+            logger.error(error_msg)
+            raise HTTPException(status_code=400, detail=error_msg)
+        
         # Check cache first
-        cached_data = load_from_cache(backtest_date)
+        cached_data = load_from_cache(f"{backtest_date}.pkl")
         if cached_data:
             logger.info("Using cached backtest data")
             return cached_data
         
         # Read historical data
-        csv_path = os.path.join(BASE_DIR, 'stock_data', 'historical_data.csv')
-        logger.info(f"Reading CSV file for backtest: {csv_path}")
+        logger.info(f"Reading CSV file for backtest: {HISTORICAL_DATA_PATH}")
         
-        df = pd.read_csv(csv_path)
+        df = pd.read_csv(HISTORICAL_DATA_PATH)
         # Convert Date column to date only (no timezone)
         df['Date'] = pd.to_datetime(df['Date']).dt.date
+        
+        # Check if we have data for the requested date
+        if backtest_date not in df['Date'].values:
+            error_msg = f"No data available for the selected date: {backtest_date}"
+            logger.error(error_msg)
+            raise HTTPException(status_code=404, detail=error_msg)
         
         # Calculate strength scores using the helper function
         result = calculate_strength_scores(df, backtest_date)
         
         # Save to cache
-        save_to_cache(backtest_date, result)
+        save_to_cache(f"{backtest_date}.pkl", result)
         
         return result
 
+    except ValueError as e:
+        logger.error(f"Invalid date format: {e}")
+        raise HTTPException(status_code=400, detail="Invalid date format. Please use YYYY-MM-DD format.")
     except Exception as e:
         logger.error(f"Error in run_backtest: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/add-todays-data")
-async def add_todays_data(file_path: str):
+async def add_todays_data(file_path: str = HISTORICAL_DATA_PATH):
     """
     Add today's data to existing historical data file.
     If data for today already exists, it will be overwritten with the latest data.
@@ -353,18 +375,14 @@ async def load_historical_data(days: int):
         dict: Status message and file path
     """
     try:
-        # Generate filename with current date
-        current_date = datetime.now(IST).strftime("%Y%m%d")
-        data_file = os.path.join(BASE_DIR, 'stock_data', f'historical_data_{current_date}.csv')
-        
         # Clear existing data and fetch new data
-        clear_historical_data(data_file)
-        fetch_all_stocks_data(data_file, days=days)
+        clear_historical_data(HISTORICAL_DATA_PATH)
+        fetch_all_stocks_data(HISTORICAL_DATA_PATH, days=days)
         
         return {
             "status": "success",
             "message": f"Successfully loaded {days} days of historical data",
-            "file_path": data_file
+            "file_path": HISTORICAL_DATA_PATH
         }
     except Exception as e:
         logger.error(f"Error loading historical data: {str(e)}")
@@ -380,7 +398,7 @@ def refresh_daily_data():
         logger.info(f"Running daily data refresh at {current_time}")
         
         # Add today's data
-        add_todays_data(DEFAULT_DATA_FILE)
+        add_todays_data(HISTORICAL_DATA_PATH)
         logger.info(f"Daily data refresh completed at {current_time}")
     except Exception as e:
         logger.error(f"Error in daily data refresh: {str(e)}")
