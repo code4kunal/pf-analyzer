@@ -1,0 +1,3 @@
+[submodule "stock-dashboard"]
+	path = stock-dashboard
+	url = https://github.com/code4kunal/stock-dashboard.git
