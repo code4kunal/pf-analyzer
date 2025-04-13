@@ -28,4 +28,10 @@ yarn-error.log*
 
 # OS
 .DS_Store
-Thumbs.db 
+Thumbs.db
+
+# Large data files
+stock_data/
+backend/stock_data/
+*.csv
+*.pkl 
