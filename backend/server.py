@@ -150,8 +150,8 @@ def calculate_strength_scores(df, date):
                 # Calculate moving averages and liquidity
                 ma_20 = stock_data['Close'].rolling(20).mean().iloc[-1]
                 mav_20 = stock_data['Volume'].rolling(20).mean().iloc[-1]
-                liquidity = ma_20 * mav_20
-                logger.debug(f"{stock} MA20: {ma_20}, MAV20: {mav_20}, Liquidity: {liquidity}")
+                liquidity = (ma_20 * mav_20) / 10000000  # Convert to crores
+                logger.debug(f"{stock} MA20: {ma_20}, MAV20: {mav_20}, Liquidity: {liquidity} crores")
                 
                 # Calculate weighted strength score
                 strength_score = (one_month_return * 0.5) + (three_month_return * 0.3) + (six_month_return * 0.2)
@@ -218,8 +218,8 @@ def calculate_strength_scores(df, date):
         results['Rank'] = range(1, len(results) + 1)
         logger.debug(f"Final ranks sample:\n{results[['Stock', 'Rank', 'Strength_Score_Normalized']].head()}")
         
-        # Filter for stocks with sufficient liquidity (e.g., > 10M)
-        results = results[results['Liquidity'] >= 10000000]
+        # Filter for stocks with sufficient liquidity (e.g., > 1 crore)
+        results = results[results['Liquidity'] >= 1]
         logger.info(f"After liquidity filter: {len(results)} stocks remaining")
         
         # Take top 50 stocks by strength score
