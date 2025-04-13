@@ -50,7 +50,7 @@ CACHE_DIR = os.path.join(BASE_DIR, 'backend', 'stock_data', 'cache')
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 # Historical data file path
-HISTORICAL_DATA_PATH = '/Users/kunalsaxena/stocks/backend/stock_data/historical_data.csv'
+HISTORICAL_DATA_PATH = '/Users/kunalsaxena/stocks/backend/stock_data/historical_data.pkl'
 
 # Initialize scheduler
 scheduler = BackgroundScheduler()
@@ -363,16 +363,16 @@ async def get_stock_data():
             return cached_data
 
         # Read historical data
-        logger.info(f"Looking for CSV file at: {HISTORICAL_DATA_PATH}")
-        logger.info("Reading CSV file...")
+        logger.info(f"Looking for PKL file at: {HISTORICAL_DATA_PATH}")
+        logger.info("Reading PKL file...")
         try:
-            df = pd.read_csv(HISTORICAL_DATA_PATH)
-            logger.info(f"CSV loaded with {len(df)} rows")
+            df = pd.read_pickle(HISTORICAL_DATA_PATH)
+            logger.info(f"PKL loaded with {len(df)} rows")
         except FileNotFoundError:
             logger.error(f"File not found at: {HISTORICAL_DATA_PATH}")
             raise HTTPException(status_code=500, detail=f"Historical data file not found at {HISTORICAL_DATA_PATH}")
         except Exception as e:
-            logger.error(f"Error reading CSV file: {e}")
+            logger.error(f"Error reading PKL file: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
         # Convert Date column to date only (no timezone)
@@ -425,9 +425,9 @@ async def run_backtest(date: str):
             return cached_data
         
         # Read historical data
-        logger.info(f"Reading CSV file for backtest: {HISTORICAL_DATA_PATH}")
+        logger.info(f"Reading PKL file for backtest: {HISTORICAL_DATA_PATH}")
         
-        df = pd.read_csv(HISTORICAL_DATA_PATH)
+        df = pd.read_pickle(HISTORICAL_DATA_PATH)
         # Convert Date column to date only (no timezone)
         df['Date'] = pd.to_datetime(df['Date']).dt.date
         

@@ -4,8 +4,10 @@ import pandas as pd
 from datetime import datetime, timedelta
 import os
 import time
+import logging
 
 nse = Nse()
+logger = logging.getLogger(__name__)
 
 # Create stock_data directory if it doesn't exist
 os.makedirs('stock_data', exist_ok=True)
@@ -154,7 +156,8 @@ def fetch_all_stocks_data(output_file, days=730, append=False):
     if not all_data.empty:
         if append and os.path.exists(output_file):
             # Read existing data and append new data
-            existing_data = pd.read_csv(output_file)
+            existing_data = pd.read_pickle(output_file)
+            logger.info(f"Loaded existing data with {len(existing_data)} rows")
             all_data = pd.concat([existing_data, all_data])
             # Remove duplicates based on Date and Stock
             all_data = all_data.drop_duplicates(subset=['Date', 'Stock'])
@@ -163,7 +166,8 @@ def fetch_all_stocks_data(output_file, days=730, append=False):
         all_data['Date'] = pd.to_datetime(all_data['Date']).dt.strftime('%Y-%m-%d')
         
         # Save to CSV with Date column
-        all_data.to_csv(output_file, index=False)
+        all_data.to_pickle(output_file)
+        logger.info(f"Data saved to {output_file} with {len(all_data)} rows")
         print(f"\nFinal data saved to {output_file}")
         print(f"Total records saved: {len(all_data)}")
         print(f"Total stocks processed: {len(all_stocks)}")
@@ -181,7 +185,7 @@ def clear_historical_data(file_path):
         empty_df = pd.DataFrame(columns=['Date', 'Open', 'Close', 'Volume', 'Stock', 'Industry', 'Sector'])
         
         # Save the empty DataFrame to the file
-        empty_df.to_csv(file_path, index=False)
+        empty_df.to_pickle(file_path)
         print(f"Successfully cleared data in {file_path}")
     except Exception as e:
         print(f"Error clearing file {file_path}: {str(e)}")
