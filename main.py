@@ -50,6 +50,30 @@ except Exception as e:
 async def health_check():
     return {"status": "healthy", "service": "Portfolio Analyzer"}
 
+@app.post("/api/init-user")
+async def init_user(db: Session = Depends(get_db)):
+    """Initialize a default user for production (temporary endpoint)"""
+    try:
+        # Check if user exists
+        existing_user = db.query(User).filter(User.id == 1).first()
+        if existing_user:
+            return {"message": "User already exists", "username": existing_user.username}
+
+        # Create default user
+        hashed_password = auth.get_password_hash("defaultpass123")
+        user = User(
+            username="portfoliouser",
+            email="portfolio@example.com",
+            hashed_password=hashed_password
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+        return {"message": "User created successfully", "username": user.username, "id": user.id}
+    except Exception as e:
+        return {"error": str(e)}
+
 # Root route - redirect to dashboard
 @app.get("/")
 async def root():
