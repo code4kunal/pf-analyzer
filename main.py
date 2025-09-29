@@ -57,21 +57,23 @@ async def init_user(db: Session = Depends(get_db)):
         # Check if user exists
         existing_user = db.query(User).filter(User.id == 1).first()
         if existing_user:
-            return {"message": "User already exists", "username": existing_user.username}
+            return {"message": "User already exists", "username": existing_user.username, "id": existing_user.id}
 
-        # Create default user
-        hashed_password = auth.get_password_hash("defaultpass123")
+        # Create default user with shorter password to avoid bcrypt issues
         user = User(
             username="portfoliouser",
             email="portfolio@example.com",
-            hashed_password=hashed_password
+            hashed_password=auth.get_password_hash("pass123")
         )
         db.add(user)
         db.commit()
         db.refresh(user)
 
+        logger.info(f"✅ Created production user: {user.username} (ID: {user.id})")
         return {"message": "User created successfully", "username": user.username, "id": user.id}
     except Exception as e:
+        logger.error(f"❌ Error creating production user: {e}")
+        db.rollback()
         return {"error": str(e)}
 
 # Root route - redirect to dashboard
