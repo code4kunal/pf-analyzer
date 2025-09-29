@@ -1,0 +1,460 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Portfolio Analyzer{% endblock %}
+
+{% block content %}
+<div class="header">
+    <h1 class="page-title">Portfolio Dashboard</h1>
+    <p class="page-subtitle">Track your investments and performance</p>
+</div>
+
+<!-- Period Filters -->
+<div class="filters">
+    <button class="filter-btn active" onclick="loadDashboard('ALL')">All Time</button>
+    <button class="filter-btn" onclick="loadDashboard('1M')">1 Month</button>
+    <button class="filter-btn" onclick="loadDashboard('3M')">3 Months</button>
+    <button class="filter-btn" onclick="loadDashboard('6M')">6 Months</button>
+    <button class="filter-btn" onclick="loadDashboard('1Y')">1 Year</button>
+</div>
+
+<!-- Performance Metrics -->
+<div class="dashboard-grid" id="metricsGrid">
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">Total Investment</span>
+            <div class="card-icon info">
+                <i class="fas fa-wallet"></i>
+            </div>
+        </div>
+        <div class="card-value" id="totalInvestment">₹0</div>
+        <div class="card-change">
+            <span>Portfolio value</span>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">Current Value</span>
+            <div class="card-icon success">
+                <i class="fas fa-chart-line"></i>
+            </div>
+        </div>
+        <div class="card-value" id="currentValue">₹0</div>
+        <div class="card-change positive" id="percentageReturns">
+            <i class="fas fa-arrow-up"></i>
+            <span>+0.00%</span>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">Total Returns</span>
+            <div class="card-icon" id="returnsIcon">
+                <i class="fas fa-coins"></i>
+            </div>
+        </div>
+        <div class="card-value" id="absoluteReturns">₹0</div>
+        <div class="card-change" id="returnsChange">
+            <span>P&L</span>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">XIRR</span>
+            <div class="card-icon warning">
+                <i class="fas fa-percentage"></i>
+            </div>
+        </div>
+        <div class="card-value" id="xirr">0.00%</div>
+        <div class="card-change">
+            <span>Annualized return</span>
+        </div>
+    </div>
+</div>
+
+<!-- Additional Metrics -->
+<div class="dashboard-grid">
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">CAGR</span>
+            <div class="card-icon info">
+                <i class="fas fa-chart-bar"></i>
+            </div>
+        </div>
+        <div class="card-value" id="cagr">0.00%</div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">Win Rate</span>
+            <div class="card-icon success">
+                <i class="fas fa-trophy"></i>
+            </div>
+        </div>
+        <div class="card-value" id="winRate">0.00%</div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">Total Trades</span>
+            <div class="card-icon info">
+                <i class="fas fa-exchange-alt"></i>
+            </div>
+        </div>
+        <div class="card-value" id="totalTrades">0</div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">Max Drawdown</span>
+            <div class="card-icon danger">
+                <i class="fas fa-arrow-down"></i>
+            </div>
+        </div>
+        <div class="card-value" id="maxDrawdown">0.00%</div>
+    </div>
+</div>
+
+<!-- Charts -->
+<div class="chart-container">
+    <h3>Portfolio Performance</h3>
+    <canvas id="performanceChart"></canvas>
+</div>
+
+<!-- Holdings Table -->
+<div class="table-container">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <h3>Current Holdings</h3>
+        <button class="btn btn-primary" onclick="refreshHoldings()">
+            <i class="fas fa-sync"></i> Refresh
+        </button>
+    </div>
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Symbol</th>
+                <th>Quantity</th>
+                <th>Avg Price</th>
+                <th>Current Price</th>
+                <th>P&L</th>
+                <th>P&L %</th>
+            </tr>
+        </thead>
+        <tbody id="holdingsTable">
+            <!-- Holdings will be loaded here -->
+        </tbody>
+    </table>
+</div>
+
+<!-- Recent Trades Table -->
+<div class="table-container" style="margin-top: 2rem;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <h3>Recent Trades</h3>
+        <button class="btn btn-primary" onclick="showAddTradeModal()">
+            <i class="fas fa-plus"></i> Add Trade
+        </button>
+    </div>
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Symbol</th>
+                <th>Type</th>
+                <th>Quantity</th>
+                <th>Price</th>
+                <th>Total</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="tradesTable">
+            <!-- Trades will be loaded here -->
+        </tbody>
+    </table>
+</div>
+
+<!-- Add Trade Modal -->
+<div class="modal" id="addTradeModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2 class="modal-title">Add New Trade</h2>
+            <button class="modal-close" onclick="closeAddTradeModal()">&times;</button>
+        </div>
+        <form id="addTradeForm">
+            <div class="form-group">
+                <label class="form-label">Symbol</label>
+                <input type="text" class="form-control" id="tradeSymbol" required>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Exchange</label>
+                <select class="form-control" id="tradeExchange">
+                    <option value="NSE">NSE</option>
+                    <option value="BSE">BSE</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Trade Type</label>
+                <select class="form-control" id="tradeType">
+                    <option value="BUY">Buy</option>
+                    <option value="SELL">Sell</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Order Type</label>
+                <select class="form-control" id="orderType">
+                    <option value="MARKET">Market</option>
+                    <option value="LIMIT">Limit</option>
+                    <option value="SL">Stop Loss</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Quantity</label>
+                <input type="number" class="form-control" id="tradeQuantity" required>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Price</label>
+                <input type="number" class="form-control" id="tradePrice" step="0.01" required>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Trade Date</label>
+                <input type="datetime-local" class="form-control" id="tradeDate" required>
+            </div>
+            <button type="submit" class="btn btn-primary">Add Trade</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let performanceChart = null;
+let currentPeriod = 'ALL';
+
+// Load dashboard data
+async function loadDashboard(period = 'ALL') {
+    currentPeriod = period;
+
+    // Update filter buttons
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.textContent.includes(period) ||
+            (period === 'ALL' && btn.textContent === 'All Time') ||
+            (period === '1M' && btn.textContent === '1 Month') ||
+            (period === '3M' && btn.textContent === '3 Months') ||
+            (period === '6M' && btn.textContent === '6 Months') ||
+            (period === '1Y' && btn.textContent === '1 Year')) {
+            btn.classList.add('active');
+        }
+    });
+
+    try {
+        // Load performance metrics
+        const response = await axios.get(`${API_URL}/performance?period=${period}`);
+        const data = response.data;
+
+        // Update metrics
+        document.getElementById('totalInvestment').textContent = formatCurrency(data.total_investment);
+        document.getElementById('currentValue').textContent = formatCurrency(data.current_value);
+        document.getElementById('absoluteReturns').textContent = formatCurrency(data.absolute_returns);
+
+        // Update percentage returns with color
+        const percentageElem = document.getElementById('percentageReturns');
+        percentageElem.innerHTML = `
+            <i class="fas fa-arrow-${data.percentage_returns >= 0 ? 'up' : 'down'}"></i>
+            <span>${formatPercentage(data.percentage_returns)}</span>
+        `;
+        percentageElem.className = `card-change ${data.percentage_returns >= 0 ? 'positive' : 'negative'}`;
+
+        // Update returns icon color
+        const returnsIcon = document.getElementById('returnsIcon');
+        returnsIcon.className = `card-icon ${data.absolute_returns >= 0 ? 'success' : 'danger'}`;
+
+        // Update other metrics
+        document.getElementById('xirr').textContent = data.xirr ? `${data.xirr.toFixed(2)}%` : 'N/A';
+        document.getElementById('cagr').textContent = data.cagr ? `${data.cagr.toFixed(2)}%` : 'N/A';
+        document.getElementById('winRate').textContent = `${data.win_rate.toFixed(2)}%`;
+        document.getElementById('totalTrades').textContent = data.total_trades;
+        document.getElementById('maxDrawdown').textContent = data.max_drawdown ? `${data.max_drawdown.toFixed(2)}%` : 'N/A';
+
+        // Load holdings
+        await loadHoldings();
+
+        // Load trades
+        await loadTrades();
+
+        // Update chart
+        updatePerformanceChart();
+
+    } catch (error) {
+        console.error('Failed to load dashboard:', error);
+    }
+}
+
+// Load holdings
+async function loadHoldings() {
+    try {
+        const response = await axios.get(`${API_URL}/holdings`);
+        const holdings = response.data;
+
+        const tbody = document.getElementById('holdingsTable');
+        tbody.innerHTML = '';
+
+        holdings.forEach(holding => {
+            const row = tbody.insertRow();
+            row.innerHTML = `
+                <td>${holding.symbol}</td>
+                <td>${holding.quantity}</td>
+                <td>${formatCurrency(holding.average_price)}</td>
+                <td>${holding.current_price ? formatCurrency(holding.current_price) : 'N/A'}</td>
+                <td class="${holding.unrealized_pnl >= 0 ? 'positive' : 'negative'}">
+                    ${holding.unrealized_pnl ? formatCurrency(holding.unrealized_pnl) : 'N/A'}
+                </td>
+                <td class="${holding.unrealized_pnl_percentage >= 0 ? 'positive' : 'negative'}">
+                    ${holding.unrealized_pnl_percentage ? formatPercentage(holding.unrealized_pnl_percentage) : 'N/A'}
+                </td>
+            `;
+        });
+
+        if (holdings.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">No holdings found</td></tr>';
+        }
+    } catch (error) {
+        console.error('Failed to load holdings:', error);
+    }
+}
+
+// Load trades
+async function loadTrades() {
+    try {
+        const response = await axios.get(`${API_URL}/trades?limit=10`);
+        const trades = response.data;
+
+        const tbody = document.getElementById('tradesTable');
+        tbody.innerHTML = '';
+
+        trades.forEach(trade => {
+            const row = tbody.insertRow();
+            const tradeDate = new Date(trade.trade_date).toLocaleDateString();
+            row.innerHTML = `
+                <td>${tradeDate}</td>
+                <td>${trade.symbol}</td>
+                <td><span class="badge ${trade.trade_type === 'BUY' ? 'success' : 'danger'}">${trade.trade_type}</span></td>
+                <td>${trade.quantity}</td>
+                <td>${formatCurrency(trade.price)}</td>
+                <td>${formatCurrency(trade.total_cost)}</td>
+                <td>
+                    <button class="btn btn-outline" onclick="journalTrade(${trade.id})">
+                        <i class="fas fa-book"></i>
+                    </button>
+                </td>
+            `;
+        });
+
+        if (trades.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align: center;">No trades found</td></tr>';
+        }
+    } catch (error) {
+        console.error('Failed to load trades:', error);
+    }
+}
+
+// Refresh holdings
+async function refreshHoldings() {
+    await syncPortfolio();
+    await loadHoldings();
+}
+
+// Update performance chart
+function updatePerformanceChart() {
+    const ctx = document.getElementById('performanceChart').getContext('2d');
+
+    if (performanceChart) {
+        performanceChart.destroy();
+    }
+
+    // Sample data - in production, fetch from API
+    const labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
+    const data = [100000, 105000, 102000, 110000, 115000, 120000];
+
+    performanceChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Portfolio Value',
+                data: data,
+                borderColor: '#10b981',
+                backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                tension: 0.4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: false,
+                    ticks: {
+                        callback: function(value) {
+                            return formatCurrency(value);
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Show add trade modal
+function showAddTradeModal() {
+    document.getElementById('addTradeModal').classList.add('show');
+    document.getElementById('tradeDate').value = new Date().toISOString().slice(0, 16);
+}
+
+// Close add trade modal
+function closeAddTradeModal() {
+    document.getElementById('addTradeModal').classList.remove('show');
+}
+
+// Add trade form submission
+document.getElementById('addTradeForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const tradeData = {
+        symbol: document.getElementById('tradeSymbol').value,
+        exchange: document.getElementById('tradeExchange').value,
+        trade_type: document.getElementById('tradeType').value,
+        order_type: document.getElementById('orderType').value,
+        quantity: parseInt(document.getElementById('tradeQuantity').value),
+        price: parseFloat(document.getElementById('tradePrice').value),
+        trade_date: document.getElementById('tradeDate').value,
+        brokerage: 20, // Default brokerage
+        taxes: 0 // Will be calculated
+    };
+
+    try {
+        await axios.post(`${API_URL}/trades`, tradeData);
+        closeAddTradeModal();
+        await loadDashboard(currentPeriod);
+        showNotification('Trade added successfully');
+    } catch (error) {
+        alert('Failed to add trade: ' + (error.response?.data?.detail || error.message));
+    }
+});
+
+// Journal trade
+function journalTrade(tradeId) {
+    window.location.href = `/journal?trade_id=${tradeId}`;
+}
+
+// Initialize dashboard on load
+window.addEventListener('DOMContentLoaded', () => {
+    loadDashboard('ALL');
+});
+</script>
+{% endblock %}

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Portfolio Analyzer{% endblock %}</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+        <div class="logo">
+            <h1>Portfolio Analyzer</h1>
+        </div>
+        <nav>
+            <ul class="nav-menu">
+                <li class="nav-item">
+                    <a href="/dashboard" class="nav-link {% if request.url.path == '/dashboard' %}active{% endif %}">
+                        <i class="fas fa-chart-line"></i>
+                        <span>Dashboard</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a href="/journal" class="nav-link {% if request.url.path == '/journal' %}active{% endif %}">
+                        <i class="fas fa-book"></i>
+                        <span>Journal</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a href="/settings" class="nav-link {% if request.url.path == '/settings' %}active{% endif %}">
+                        <i class="fas fa-cog"></i>
+                        <span>Settings</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a href="#" class="nav-link" onclick="syncPortfolio()">
+                        <i class="fas fa-sync"></i>
+                        <span>Sync Portfolio</span>
+                    </a>
+                </li>
+            </ul>
+        </nav>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Base JavaScript -->
+    <script>
+        // API Base URL
+        const API_URL = '/api';
+
+        // Format currency
+        function formatCurrency(amount) {
+            return new Intl.NumberFormat('en-IN', {
+                style: 'currency',
+                currency: 'INR',
+                minimumFractionDigits: 0,
+                maximumFractionDigits: 0
+            }).format(amount);
+        }
+
+        // Format percentage
+        function formatPercentage(value) {
+            return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
+        }
+
+        // Sync portfolio with Kite
+        async function syncPortfolio() {
+            try {
+                const response = await axios.get(`${API_URL}/kite/sync`);
+                alert(response.data.message);
+                location.reload();
+            } catch (error) {
+                alert('Failed to sync portfolio: ' + (error.response?.data?.detail || error.message));
+            }
+        }
+
+        // Show notification
+        function showNotification(message, type = 'success') {
+            // Implementation for notifications
+            console.log(`${type}: ${message}`);
+        }
+    </script>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

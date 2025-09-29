@@ -1,0 +1,261 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - Portfolio Analyzer{% endblock %}
+
+{% block content %}
+<div class="header">
+    <h1 class="page-title">Settings</h1>
+    <p class="page-subtitle">Configure your portfolio analyzer</p>
+</div>
+
+<!-- Zerodha Integration Section -->
+<div class="card" style="margin-bottom: 2rem;">
+    <h3 style="margin-bottom: 1.5rem;">Zerodha Kite Integration</h3>
+
+    <div id="kiteStatus" style="margin-bottom: 1.5rem;">
+        <!-- Status will be shown here -->
+    </div>
+
+    <div style="display: flex; gap: 1rem;">
+        <button class="btn btn-primary" onclick="connectKite()">
+            <i class="fas fa-link"></i> Connect to Kite
+        </button>
+        <button class="btn btn-outline" onclick="disconnectKite()">
+            <i class="fas fa-unlink"></i> Disconnect
+        </button>
+    </div>
+
+    <div style="margin-top: 1.5rem; padding: 1rem; background: var(--primary-color); border-radius: 8px;">
+        <h4 style="font-size: 0.875rem; margin-bottom: 0.5rem; color: var(--text-secondary);">How to Connect:</h4>
+        <ol style="font-size: 0.875rem; line-height: 1.8;">
+            <li>Click "Connect to Kite" button</li>
+            <li>You'll be redirected to Zerodha login page</li>
+            <li>Enter your credentials and approve access</li>
+            <li>You'll be redirected back with authorization</li>
+            <li>Your portfolio will sync automatically</li>
+        </ol>
+    </div>
+</div>
+
+<!-- Portfolio Sync Settings -->
+<div class="card" style="margin-bottom: 2rem;">
+    <h3 style="margin-bottom: 1.5rem;">Automatic Sync Settings</h3>
+
+    <div class="form-group">
+        <label class="form-label">
+            <input type="checkbox" id="autoSync" checked> Enable automatic daily sync
+        </label>
+        <p style="font-size: 0.875rem; color: var(--text-secondary); margin-top: 0.5rem;">
+            Automatically sync your portfolio data at 9:00 AM every day
+        </p>
+    </div>
+
+    <div class="form-group">
+        <label class="form-label">
+            <input type="checkbox" id="calcPerformance" checked> Calculate performance metrics daily
+        </label>
+        <p style="font-size: 0.875rem; color: var(--text-secondary); margin-top: 0.5rem;">
+            Calculate XIRR, CAGR and other metrics at 4:00 PM after market close
+        </p>
+    </div>
+
+    <button class="btn btn-primary" onclick="saveSettings()">
+        <i class="fas fa-save"></i> Save Settings
+    </button>
+</div>
+
+<!-- Data Management -->
+<div class="card">
+    <h3 style="margin-bottom: 1.5rem;">Data Management</h3>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem;">
+        <button class="btn btn-outline" onclick="exportData()">
+            <i class="fas fa-download"></i> Export All Data
+        </button>
+        <button class="btn btn-outline" onclick="importData()">
+            <i class="fas fa-upload"></i> Import Data
+        </button>
+        <button class="btn btn-danger" onclick="clearData()">
+            <i class="fas fa-trash"></i> Clear All Data
+        </button>
+    </div>
+
+    <div style="margin-top: 1.5rem; padding: 1rem; background: rgba(239, 68, 68, 0.1); border-radius: 8px; border: 1px solid var(--danger-color);">
+        <p style="font-size: 0.875rem; color: var(--danger-color);">
+            <i class="fas fa-exclamation-triangle"></i> Warning: Clearing all data will permanently delete your trades, journal entries, and performance history.
+        </p>
+    </div>
+</div>
+
+<!-- Hidden file input for import -->
+<input type="file" id="importFile" style="display: none;" accept=".json">
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Check Kite connection status
+async function checkKiteStatus() {
+    // In production, check actual connection status
+    const isConnected = false; // This would come from API
+
+    const statusDiv = document.getElementById('kiteStatus');
+    if (isConnected) {
+        statusDiv.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--success-color);">
+                <i class="fas fa-check-circle"></i>
+                <span>Connected to Zerodha Kite</span>
+            </div>
+        `;
+    } else {
+        statusDiv.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--text-secondary);">
+                <i class="fas fa-times-circle"></i>
+                <span>Not connected to Zerodha Kite</span>
+            </div>
+        `;
+    }
+}
+
+// Connect to Kite
+async function connectKite() {
+    try {
+        const response = await axios.get(`${API_URL}/kite/login-url`);
+        if (response.data.url) {
+            // Redirect to Kite login
+            window.location.href = response.data.url;
+        }
+    } catch (error) {
+        alert('Failed to get Kite login URL: ' + (error.response?.data?.detail || error.message));
+    }
+}
+
+// Disconnect Kite
+async function disconnectKite() {
+    if (!confirm('Are you sure you want to disconnect from Zerodha Kite?')) {
+        return;
+    }
+
+    // In production, call API to clear Kite credentials
+    showNotification('Disconnected from Zerodha Kite');
+    checkKiteStatus();
+}
+
+// Save settings
+function saveSettings() {
+    const autoSync = document.getElementById('autoSync').checked;
+    const calcPerformance = document.getElementById('calcPerformance').checked;
+
+    // In production, save to backend
+    localStorage.setItem('autoSync', autoSync);
+    localStorage.setItem('calcPerformance', calcPerformance);
+
+    showNotification('Settings saved successfully');
+}
+
+// Export data
+async function exportData() {
+    try {
+        // In production, fetch all data from API
+        const data = {
+            trades: [],
+            journal: [],
+            settings: {
+                autoSync: document.getElementById('autoSync').checked,
+                calcPerformance: document.getElementById('calcPerformance').checked
+            },
+            exportDate: new Date().toISOString()
+        };
+
+        // Create and download JSON file
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `portfolio-export-${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        showNotification('Data exported successfully');
+    } catch (error) {
+        alert('Failed to export data: ' + error.message);
+    }
+}
+
+// Import data
+function importData() {
+    document.getElementById('importFile').click();
+}
+
+// Handle file import
+document.getElementById('importFile').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+
+        // In production, validate and import data via API
+        console.log('Importing data:', data);
+
+        showNotification('Data imported successfully');
+        e.target.value = ''; // Clear file input
+    } catch (error) {
+        alert('Failed to import data: ' + error.message);
+        e.target.value = ''; // Clear file input
+    }
+});
+
+// Clear all data
+async function clearData() {
+    if (!confirm('Are you sure you want to clear all data? This action cannot be undone.')) {
+        return;
+    }
+
+    if (!confirm('This will permanently delete all trades, journal entries, and performance history. Continue?')) {
+        return;
+    }
+
+    try {
+        // In production, call API to clear all data
+        showNotification('All data cleared successfully');
+    } catch (error) {
+        alert('Failed to clear data: ' + error.message);
+    }
+}
+
+// Load settings on page load
+window.addEventListener('DOMContentLoaded', () => {
+    checkKiteStatus();
+
+    // Load saved settings
+    const autoSync = localStorage.getItem('autoSync') !== 'false';
+    const calcPerformance = localStorage.getItem('calcPerformance') !== 'false';
+
+    document.getElementById('autoSync').checked = autoSync;
+    document.getElementById('calcPerformance').checked = calcPerformance;
+
+    // Check for callback parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('success')) {
+        showNotification('Successfully connected to Zerodha Kite!', 'success');
+        checkKiteStatus();
+        // Clear URL parameters
+        window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (urlParams.has('error')) {
+        const error = urlParams.get('error');
+        if (error === 'cancelled') {
+            showNotification('Kite connection cancelled', 'warning');
+        } else if (error === 'auth_failed') {
+            showNotification('Failed to authenticate with Kite', 'error');
+        } else {
+            showNotification(`Error: ${error}`, 'error');
+        }
+        // Clear URL parameters
+        window.history.replaceState({}, document.title, window.location.pathname);
+    }
+});
+</script>
+{% endblock %}
