@@ -7,6 +7,7 @@ from typing import List, Optional
 from datetime import datetime, timedelta
 import uvicorn
 import logging
+import os
 
 from database import engine, get_db
 from models import Base, User, Trade, JournalEntry, Holding
@@ -26,14 +27,28 @@ Base.metadata.create_all(bind=engine)
 # Initialize FastAPI app
 app = FastAPI(title="Portfolio Analyzer", version="1.0.0")
 
+# Create directories if they don't exist
+os.makedirs("static/css", exist_ok=True)
+os.makedirs("static/js", exist_ok=True)
+os.makedirs("templates", exist_ok=True)
+
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Setup templates
 templates = Jinja2Templates(directory="templates")
 
-# Start scheduler for daily updates
-start_scheduler()
+# Start scheduler for daily updates (optional, won't crash if fails)
+try:
+    start_scheduler()
+    logger.info("Scheduler started successfully")
+except Exception as e:
+    logger.warning(f"Could not start scheduler: {e}")
+
+# Health check endpoint
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "service": "Portfolio Analyzer"}
 
 # Root route - redirect to dashboard
 @app.get("/")
