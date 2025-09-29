@@ -95,22 +95,32 @@
 <script>
 // Check Kite connection status
 async function checkKiteStatus() {
-    // In production, check actual connection status
-    const isConnected = false; // This would come from API
+    try {
+        const response = await axios.get(`${API_URL}/kite/status`);
+        const data = response.data;
 
-    const statusDiv = document.getElementById('kiteStatus');
-    if (isConnected) {
+        const statusDiv = document.getElementById('kiteStatus');
+        if (data.connected) {
+            statusDiv.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--success-color);">
+                    <i class="fas fa-check-circle"></i>
+                    <span>${data.message}</span>
+                </div>
+            `;
+        } else {
+            statusDiv.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--text-secondary);">
+                    <i class="fas fa-times-circle"></i>
+                    <span>${data.message}</span>
+                </div>
+            `;
+        }
+    } catch (error) {
+        const statusDiv = document.getElementById('kiteStatus');
         statusDiv.innerHTML = `
-            <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--success-color);">
-                <i class="fas fa-check-circle"></i>
-                <span>Connected to Zerodha Kite</span>
-            </div>
-        `;
-    } else {
-        statusDiv.innerHTML = `
-            <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--text-secondary);">
-                <i class="fas fa-times-circle"></i>
-                <span>Not connected to Zerodha Kite</span>
+            <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--danger-color);">
+                <i class="fas fa-exclamation-circle"></i>
+                <span>Error checking connection status</span>
             </div>
         `;
     }

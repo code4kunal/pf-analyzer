@@ -254,6 +254,24 @@ async def get_statistics(db: Session = Depends(get_db)):
 async def get_kite_login_url():
     return {"url": kite_service.get_login_url()}
 
+@app.get("/api/kite/status")
+async def get_kite_status(db: Session = Depends(get_db)):
+    """Check if Kite is connected"""
+    user = db.query(User).filter(User.id == 1).first()  # In production, use current user
+
+    if user and user.kite_access_token:
+        return {
+            "connected": True,
+            "user_id": user.kite_user_id,
+            "message": f"Connected as {user.kite_user_id}"
+        }
+    else:
+        return {
+            "connected": False,
+            "user_id": None,
+            "message": "Not connected to Zerodha Kite"
+        }
+
 @app.get("/api/kite/callback")
 async def kite_callback(
     request_token: str = None,
@@ -261,14 +279,19 @@ async def kite_callback(
     db: Session = Depends(get_db)
 ):
     """Handle Kite redirect after authentication"""
+    logger.info(f"🔍 Kite callback received - Token: {request_token}, Status: {status}")
+
     if status == "cancelled" or not request_token:
+        logger.warning(f"❌ Callback cancelled or no token")
         return RedirectResponse(url="/settings?error=cancelled")
 
     try:
+        logger.info(f"📞 Attempting to generate session with token: {request_token}")
         # Generate session with request token
         session_data = kite_service.generate_session(request_token)
 
         if session_data:
+            logger.info(f"✅ Session generated successfully for user: {session_data.get('user_id')}")
             # Update user's Kite credentials
             user = db.query(User).filter(User.id == 1).first()  # In production, use current user
             if user:
@@ -276,11 +299,16 @@ async def kite_callback(
                 user.kite_access_token = session_data.get("access_token")
                 user.kite_refresh_token = session_data.get("refresh_token")
                 db.commit()
+                logger.info(f"✅ Saved credentials to database for user: {user.username}")
+            else:
+                logger.error(f"❌ No user found with ID 1")
 
             return RedirectResponse(url="/settings?success=true")
         else:
+            logger.error(f"❌ Failed to generate session data")
             return RedirectResponse(url="/settings?error=auth_failed")
     except Exception as e:
+        logger.error(f"❌ Callback error: {e}")
         return RedirectResponse(url=f"/settings?error={str(e)}")
 
 @app.post("/api/kite/postback")

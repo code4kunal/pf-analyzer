@@ -318,7 +318,17 @@ async function loadHoldings() {
         });
 
         if (holdings.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">No holdings found</td></tr>';
+            tbody.innerHTML = `
+                <tr><td colspan="6" style="text-align: center; padding: 2rem;">
+                    <div>
+                        <i class="fas fa-chart-line" style="font-size: 2rem; color: var(--text-secondary); margin-bottom: 1rem;"></i>
+                        <div>No current holdings found</div>
+                        <div style="font-size: 0.875rem; color: var(--text-secondary); margin-top: 0.5rem;">
+                            Kite is connected but you don't have any current positions
+                        </div>
+                    </div>
+                </td></tr>
+            `;
         }
     } catch (error) {
         console.error('Failed to load holdings:', error);
@@ -353,7 +363,17 @@ async function loadTrades() {
         });
 
         if (trades.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" style="text-align: center;">No trades found</td></tr>';
+            tbody.innerHTML = `
+                <tr><td colspan="7" style="text-align: center; padding: 2rem;">
+                    <div>
+                        <i class="fas fa-exchange-alt" style="font-size: 2rem; color: var(--text-secondary); margin-bottom: 1rem;"></i>
+                        <div>No recent trades found</div>
+                        <div style="font-size: 0.875rem; color: var(--text-secondary); margin-top: 0.5rem;">
+                            Add trades manually or they'll sync automatically when you trade
+                        </div>
+                    </div>
+                </td></tr>
+            `;
         }
     } catch (error) {
         console.error('Failed to load trades:', error);
