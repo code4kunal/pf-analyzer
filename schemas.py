@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from datetime import datetime, date
 from typing import Optional, List
 from models import TradeType, OrderType
@@ -6,7 +6,7 @@ from models import TradeType, OrderType
 # User schemas
 class UserCreate(BaseModel):
     username: str
-    email: EmailStr
+    email: str
     password: str
 
 class UserLogin(BaseModel):
