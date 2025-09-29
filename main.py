@@ -59,11 +59,11 @@ async def init_user(db: Session = Depends(get_db)):
         if existing_user:
             return {"message": "User already exists", "username": existing_user.username, "id": existing_user.id}
 
-        # Create default user with shorter password to avoid bcrypt issues
+        # Create default user with simple hash to avoid bcrypt issues
         user = User(
             username="portfoliouser",
             email="portfolio@example.com",
-            hashed_password=auth.get_password_hash("pass123")
+            hashed_password="$2b$12$dummy_hash_for_production_user"  # Dummy hash since we don't need login
         )
         db.add(user)
         db.commit()
