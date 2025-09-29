@@ -118,8 +118,10 @@
 
 <!-- Charts -->
 <div class="chart-container">
-    <h3>Portfolio Performance</h3>
-    <canvas id="performanceChart"></canvas>
+    <h3 style="margin-bottom: 1rem;">Portfolio Performance</h3>
+    <div style="height: 300px; position: relative;">
+        <canvas id="performanceChart"></canvas>
+    </div>
 </div>
 
 <!-- Holdings Table -->
@@ -385,21 +387,47 @@ function updatePerformanceChart() {
                 data: data,
                 borderColor: '#10b981',
                 backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                tension: 0.4
+                tension: 0.4,
+                fill: true
             }]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            interaction: {
+                intersect: false,
+                mode: 'index'
+            },
             plugins: {
                 legend: {
                     display: false
+                },
+                tooltip: {
+                    backgroundColor: 'var(--card-bg)',
+                    titleColor: 'var(--text-primary)',
+                    bodyColor: 'var(--text-primary)',
+                    borderColor: 'var(--border-color)',
+                    borderWidth: 1
                 }
             },
             scales: {
+                x: {
+                    grid: {
+                        color: 'var(--border-color)',
+                        drawBorder: false
+                    },
+                    ticks: {
+                        color: 'var(--text-secondary)'
+                    }
+                },
                 y: {
                     beginAtZero: false,
+                    grid: {
+                        color: 'var(--border-color)',
+                        drawBorder: false
+                    },
                     ticks: {
+                        color: 'var(--text-secondary)',
                         callback: function(value) {
                             return formatCurrency(value);
                         }

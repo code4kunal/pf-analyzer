@@ -23,6 +23,7 @@ body {
     color: var(--text-primary);
     min-height: 100vh;
     line-height: 1.6;
+    overflow-x: hidden;
 }
 
 /* Sidebar */
@@ -85,6 +86,8 @@ body {
     margin-left: 250px;
     padding: 2rem;
     min-height: 100vh;
+    max-width: calc(100vw - 250px);
+    overflow-x: hidden;
 }
 
 .header {
@@ -307,7 +310,13 @@ body {
     padding: 1.5rem;
     border: 1px solid var(--border-color);
     margin-bottom: 2rem;
-    min-height: 400px;
+    height: 400px;
+    position: relative;
+}
+
+.chart-container canvas {
+    max-height: 300px !important;
+    width: 100% !important;
 }
 
 /* Filters */
