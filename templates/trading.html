@@ -1,0 +1,497 @@
+{% extends "base.html" %}
+
+{% block title %}Trading Platform - Portfolio Analyzer{% endblock %}
+
+{% block content %}
+<div class="header">
+    <h1 class="page-title">Trading Platform</h1>
+    <p class="page-subtitle">Search, analyze, and trade with professional charts and automation</p>
+</div>
+
+<!-- Stock Search -->
+<div class="card" style="margin-bottom: 1.5rem;">
+    <div style="display: flex; gap: 1rem; align-items: center;">
+        <div style="flex: 1;">
+            <input
+                type="text"
+                id="stockSearch"
+                class="form-control"
+                placeholder="Search stocks... (e.g., RELIANCE, TCS, INFY)"
+                autocomplete="off"
+            >
+        </div>
+        <select id="exchangeFilter" class="form-control" style="width: 120px;">
+            <option value="">All Exchanges</option>
+            <option value="NSE">NSE</option>
+            <option value="BSE">BSE</option>
+        </select>
+        <button class="btn btn-primary" onclick="searchStocks()">
+            <i class="fas fa-search"></i>
+        </button>
+    </div>
+
+    <!-- Search Results -->
+    <div id="searchResults" style="margin-top: 1rem; display: none;">
+        <div class="search-results-container">
+            <!-- Results will be populated here -->
+        </div>
+    </div>
+</div>
+
+<!-- Main Trading Interface -->
+<div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem;">
+
+    <!-- Left Panel: Chart -->
+    <div class="card">
+        <div style="display: flex; justify-content: between; align-items: center; margin-bottom: 1rem;">
+            <h3 id="currentSymbol">Select a stock to view chart</h3>
+            <div style="display: flex; gap: 0.5rem;">
+                <button class="btn btn-outline" onclick="addToWatchlist()">
+                    <i class="fas fa-bookmark"></i> Add to Watchlist
+                </button>
+                <button class="btn btn-primary" onclick="showOrderPanel()">
+                    <i class="fas fa-shopping-cart"></i> Trade
+                </button>
+            </div>
+        </div>
+
+        <!-- TradingView Chart Container -->
+        <div id="tradingview_chart" style="height: 500px; background: var(--primary-color); border-radius: 8px;">
+            <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-secondary);">
+                <div style="text-align: center;">
+                    <i class="fas fa-chart-line" style="font-size: 3rem; margin-bottom: 1rem;"></i>
+                    <div>Search and select a stock to view professional charts</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right Panel: Stock Info & Orders -->
+    <div>
+        <!-- Current Stock Info -->
+        <div class="card" style="margin-bottom: 1.5rem;">
+            <h4>Stock Information</h4>
+            <div id="stockInfo" style="margin-top: 1rem;">
+                <div style="color: var(--text-secondary);">Select a stock to view details</div>
+            </div>
+        </div>
+
+        <!-- Quick Order Panel -->
+        <div class="card" style="margin-bottom: 1.5rem;">
+            <h4>Quick Order</h4>
+            <div id="orderPanel" style="margin-top: 1rem;">
+                <div class="form-group">
+                    <label class="form-label">Quantity</label>
+                    <input type="number" id="orderQuantity" class="form-control" value="1">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Order Type</label>
+                    <select id="orderType" class="form-control">
+                        <option value="MARKET">Market</option>
+                        <option value="LIMIT">Limit</option>
+                    </select>
+                </div>
+                <div class="form-group" id="limitPriceGroup" style="display: none;">
+                    <label class="form-label">Limit Price</label>
+                    <input type="number" id="limitPrice" class="form-control" step="0.01">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Stop Loss (%)</label>
+                    <input type="number" id="stopLoss" class="form-control" step="0.1" placeholder="e.g., 5">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Target (%)</label>
+                    <input type="number" id="target" class="form-control" step="0.1" placeholder="e.g., 10">
+                </div>
+                <div style="display: flex; gap: 0.5rem;">
+                    <button class="btn btn-success" onclick="placeBuyOrder()" style="flex: 1;">
+                        <i class="fas fa-arrow-up"></i> BUY
+                    </button>
+                    <button class="btn btn-danger" onclick="placeSellOrder()" style="flex: 1;">
+                        <i class="fas fa-arrow-down"></i> SELL
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mini Watchlist -->
+        <div class="card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h4>Watchlist</h4>
+                <button class="btn btn-outline" onclick="openWatchlistManager()">
+                    <i class="fas fa-cog"></i>
+                </button>
+            </div>
+            <div id="miniWatchlist">
+                <!-- Watchlist items will be loaded here -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Order Confirmation Modal -->
+<div class="modal" id="orderModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2 class="modal-title">Confirm Order</h2>
+            <button class="modal-close" onclick="closeOrderModal()">&times;</button>
+        </div>
+        <div id="orderDetails">
+            <!-- Order details will be shown here -->
+        </div>
+        <div style="display: flex; gap: 1rem; margin-top: 1.5rem;">
+            <button class="btn btn-primary" onclick="confirmOrder()" style="flex: 1;">
+                Confirm Order
+            </button>
+            <button class="btn btn-outline" onclick="closeOrderModal()" style="flex: 1;">
+                Cancel
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://s3.tradingview.com/tv.js"></script>
+<script>
+let currentSymbol = null;
+let tradingViewWidget = null;
+let searchTimeout = null;
+
+// Initialize page
+window.addEventListener('DOMContentLoaded', () => {
+    loadMiniWatchlist();
+
+    // Setup search with debouncing
+    document.getElementById('stockSearch').addEventListener('input', (e) => {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => {
+            if (e.target.value.length >= 2) {
+                searchStocks();
+            } else {
+                hideSearchResults();
+            }
+        }, 300);
+    });
+
+    // Setup order type change handler
+    document.getElementById('orderType').addEventListener('change', (e) => {
+        const limitGroup = document.getElementById('limitPriceGroup');
+        if (e.target.value === 'LIMIT') {
+            limitGroup.style.display = 'block';
+        } else {
+            limitGroup.style.display = 'none';
+        }
+    });
+});
+
+// Stock search functionality
+async function searchStocks() {
+    const query = document.getElementById('stockSearch').value.trim();
+    const exchange = document.getElementById('exchangeFilter').value;
+
+    if (query.length < 2) return;
+
+    try {
+        const response = await axios.get(`${API_URL}/search-stocks`, {
+            params: { query, exchange }
+        });
+
+        displaySearchResults(response.data);
+    } catch (error) {
+        console.error('Search failed:', error);
+    }
+}
+
+function displaySearchResults(results) {
+    const container = document.querySelector('.search-results-container');
+    const resultsDiv = document.getElementById('searchResults');
+
+    if (results.length === 0) {
+        container.innerHTML = '<div style="padding: 1rem; color: var(--text-secondary);">No stocks found</div>';
+    } else {
+        container.innerHTML = results.map(stock => `
+            <div class="search-result-item" onclick="selectStock('${stock.symbol}', '${stock.exchange}', '${stock.name}')"
+                 style="padding: 0.75rem; border-bottom: 1px solid var(--border-color); cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <div style="font-weight: 600;">${stock.symbol}</div>
+                    <div style="font-size: 0.875rem; color: var(--text-secondary);">${stock.name} - ${stock.exchange}</div>
+                </div>
+                <div style="text-align: right;">
+                    <div style="font-weight: 600;">₹${stock.last_price || 'N/A'}</div>
+                    <div style="font-size: 0.875rem; color: ${(stock.change || 0) >= 0 ? 'var(--success-color)' : 'var(--danger-color)'}">
+                        ${stock.change ? (stock.change >= 0 ? '+' : '') + stock.change.toFixed(2) + '%' : ''}
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    resultsDiv.style.display = 'block';
+}
+
+function hideSearchResults() {
+    document.getElementById('searchResults').style.display = 'none';
+}
+
+// Select stock and load chart
+function selectStock(symbol, exchange, name) {
+    currentSymbol = symbol;
+    const fullSymbol = `${exchange}:${symbol}`;
+
+    // Update UI
+    document.getElementById('currentSymbol').textContent = `${symbol} (${exchange})`;
+    hideSearchResults();
+
+    // Update stock info
+    updateStockInfo(symbol, exchange, name);
+
+    // Load TradingView chart
+    loadTradingViewChart(fullSymbol);
+}
+
+// Load TradingView chart
+function loadTradingViewChart(symbol) {
+    const container = document.getElementById('tradingview_chart');
+    container.innerHTML = ''; // Clear existing chart
+
+    tradingViewWidget = new TradingView.widget({
+        autosize: true,
+        symbol: symbol,
+        interval: "1D",
+        timezone: "Asia/Kolkata",
+        theme: "dark",
+        style: "1",
+        locale: "en",
+        toolbar_bg: "#1a1a2e",
+        enable_publishing: false,
+        backgroundColor: "#1a1a2e",
+        gridColor: "#2a2a3e",
+        allow_symbol_change: false,
+        details: true,
+        hotlist: true,
+        calendar: true,
+        studies: [
+            "Volume@tv-basicstudies",
+            "MACD@tv-basicstudies"
+        ],
+        container_id: "tradingview_chart",
+        datafeed: undefined,
+        library_path: undefined,
+        disabled_features: [
+            "use_localstorage_for_settings",
+            "volume_force_overlay"
+        ],
+        enabled_features: [
+            "study_templates"
+        ]
+    });
+}
+
+// Update stock information panel
+async function updateStockInfo(symbol, exchange, name) {
+    try {
+        const response = await axios.get(`${API_URL}/stock-quote`, {
+            params: { symbol: `${exchange}:${symbol}` }
+        });
+
+        const data = response.data;
+        document.getElementById('stockInfo').innerHTML = `
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div>
+                    <div style="font-size: 0.875rem; color: var(--text-secondary);">Last Price</div>
+                    <div style="font-size: 1.25rem; font-weight: 600;">₹${data.last_price || 'N/A'}</div>
+                </div>
+                <div>
+                    <div style="font-size: 0.875rem; color: var(--text-secondary);">Change</div>
+                    <div style="font-size: 1.25rem; font-weight: 600; color: ${(data.change || 0) >= 0 ? 'var(--success-color)' : 'var(--danger-color)'}">
+                        ${data.change ? (data.change >= 0 ? '+' : '') + data.change.toFixed(2) + '%' : 'N/A'}
+                    </div>
+                </div>
+                <div>
+                    <div style="font-size: 0.875rem; color: var(--text-secondary);">High</div>
+                    <div>₹${data.high || 'N/A'}</div>
+                </div>
+                <div>
+                    <div style="font-size: 0.875rem; color: var(--text-secondary);">Low</div>
+                    <div>₹${data.low || 'N/A'}</div>
+                </div>
+                <div>
+                    <div style="font-size: 0.875rem; color: var(--text-secondary);">Volume</div>
+                    <div>${data.volume ? (data.volume / 100000).toFixed(1) + 'L' : 'N/A'}</div>
+                </div>
+                <div>
+                    <div style="font-size: 0.875rem; color: var(--text-secondary);">Avg Price</div>
+                    <div>₹${data.average_price || 'N/A'}</div>
+                </div>
+            </div>
+        `;
+    } catch (error) {
+        console.error('Failed to load stock quote:', error);
+    }
+}
+
+// Order placement functions
+function placeBuyOrder() {
+    if (!currentSymbol) {
+        alert('Please select a stock first');
+        return;
+    }
+    showOrderConfirmation('BUY');
+}
+
+function placeSellOrder() {
+    if (!currentSymbol) {
+        alert('Please select a stock first');
+        return;
+    }
+    showOrderConfirmation('SELL');
+}
+
+function showOrderConfirmation(orderSide) {
+    const quantity = document.getElementById('orderQuantity').value;
+    const orderType = document.getElementById('orderType').value;
+    const limitPrice = document.getElementById('limitPrice').value;
+    const stopLoss = document.getElementById('stopLoss').value;
+    const target = document.getElementById('target').value;
+
+    const orderDetails = document.getElementById('orderDetails');
+    orderDetails.innerHTML = `
+        <div style="background: var(--primary-color); padding: 1rem; border-radius: 8px;">
+            <h4 style="color: ${orderSide === 'BUY' ? 'var(--success-color)' : 'var(--danger-color)'}">
+                ${orderSide} ${currentSymbol}
+            </h4>
+            <div style="margin-top: 1rem;">
+                <div><strong>Quantity:</strong> ${quantity}</div>
+                <div><strong>Order Type:</strong> ${orderType}</div>
+                ${orderType === 'LIMIT' ? `<div><strong>Limit Price:</strong> ₹${limitPrice}</div>` : ''}
+                ${stopLoss ? `<div><strong>Stop Loss:</strong> ${stopLoss}%</div>` : ''}
+                ${target ? `<div><strong>Target:</strong> ${target}%</div>` : ''}
+            </div>
+        </div>
+    `;
+
+    document.getElementById('orderModal').classList.add('show');
+}
+
+function closeOrderModal() {
+    document.getElementById('orderModal').classList.remove('show');
+}
+
+async function confirmOrder() {
+    // Implementation for actual order placement
+    try {
+        const orderData = {
+            symbol: currentSymbol,
+            exchange: "NSE", // Get from current selection
+            trade_type: document.querySelector('.btn.btn-success') ? 'BUY' : 'SELL',
+            order_type: document.getElementById('orderType').value,
+            quantity: parseInt(document.getElementById('orderQuantity').value),
+            price: parseFloat(document.getElementById('limitPrice').value) || 0,
+            stop_loss: parseFloat(document.getElementById('stopLoss').value) || null,
+            target: parseFloat(document.getElementById('target').value) || null
+        };
+
+        const response = await axios.post(`${API_URL}/place-order`, orderData);
+
+        if (response.data.success) {
+            alert('Order placed successfully!');
+            closeOrderModal();
+        } else {
+            alert('Order failed: ' + response.data.message);
+        }
+    } catch (error) {
+        alert('Order failed: ' + (error.response?.data?.detail || error.message));
+    }
+}
+
+// Watchlist functions
+async function addToWatchlist() {
+    if (!currentSymbol) {
+        alert('Please select a stock first');
+        return;
+    }
+
+    try {
+        await axios.post(`${API_URL}/watchlist`, {
+            symbol: currentSymbol,
+            exchange: "NSE" // Get from current selection
+        });
+
+        alert('Added to watchlist!');
+        loadMiniWatchlist();
+    } catch (error) {
+        alert('Failed to add to watchlist: ' + error.message);
+    }
+}
+
+async function loadMiniWatchlist() {
+    try {
+        const response = await axios.get(`${API_URL}/watchlist`);
+        const watchlist = response.data;
+
+        const container = document.getElementById('miniWatchlist');
+        if (watchlist.length === 0) {
+            container.innerHTML = '<div style="color: var(--text-secondary); text-align: center; padding: 1rem;">No stocks in watchlist</div>';
+            return;
+        }
+
+        container.innerHTML = watchlist.slice(0, 5).map(item => `
+            <div class="watchlist-item" onclick="selectStock('${item.symbol}', '${item.exchange}', '${item.name}')"
+                 style="display: flex; justify-content: space-between; align-items: center; padding: 0.5rem; border-bottom: 1px solid var(--border-color); cursor: pointer;">
+                <div>
+                    <div style="font-weight: 600;">${item.symbol}</div>
+                    <div style="font-size: 0.75rem; color: var(--text-secondary);">${item.exchange}</div>
+                </div>
+                <div style="text-align: right;">
+                    <div style="font-weight: 600;">₹${item.last_price || 'N/A'}</div>
+                    <div style="font-size: 0.75rem; color: ${(item.change || 0) >= 0 ? 'var(--success-color)' : 'var(--danger-color)'}">
+                        ${item.change ? (item.change >= 0 ? '+' : '') + item.change.toFixed(2) + '%' : ''}
+                    </div>
+                </div>
+            </div>
+        `).join('');
+
+        if (watchlist.length > 5) {
+            container.innerHTML += `
+                <div style="text-align: center; padding: 0.5rem;">
+                    <button class="btn btn-outline" onclick="openWatchlistManager()">
+                        View All (${watchlist.length})
+                    </button>
+                </div>
+            `;
+        }
+    } catch (error) {
+        console.error('Failed to load watchlist:', error);
+    }
+}
+
+function openWatchlistManager() {
+    // Navigate to dedicated watchlist page
+    window.location.href = '/watchlist';
+}
+
+function showOrderPanel() {
+    // Scroll to order panel or highlight it
+    document.getElementById('orderPanel').scrollIntoView({ behavior: 'smooth' });
+}
+</script>
+
+<style>
+.search-result-item:hover {
+    background: var(--accent-color);
+}
+
+.watchlist-item:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.search-results-container {
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--card-bg);
+}
+</style>
+{% endblock %}

@@ -25,6 +25,11 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    # Contact preferences
+    phone_number = Column(String, nullable=True)
+    email_notifications_enabled = Column(Boolean, default=True)
+    sms_notifications_enabled = Column(Boolean, default=False)
+
     # Zerodha credentials (encrypted in production)
     kite_user_id = Column(String, nullable=True)
     kite_access_token = Column(Text, nullable=True)
@@ -34,6 +39,8 @@ class User(Base):
     trades = relationship("Trade", back_populates="user", cascade="all, delete-orphan")
     journal_entries = relationship("JournalEntry", back_populates="user", cascade="all, delete-orphan")
     holdings = relationship("Holding", back_populates="user", cascade="all, delete-orphan")
+    watchlist_items = relationship("Watchlist", back_populates="user", cascade="all, delete-orphan")
+    alert_logs = relationship("AlertLog", back_populates="user", cascade="all, delete-orphan")
 
 class Trade(Base):
     __tablename__ = "trades"
@@ -100,7 +107,6 @@ class JournalEntry(Base):
 
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationships
     user = relationship("User", back_populates="journal_entries")
@@ -162,3 +168,57 @@ class PerformanceSnapshot(Base):
 
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class Watchlist(Base):
+    __tablename__ = "watchlist"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+    # Stock details
+    symbol = Column(String, nullable=False, index=True)
+    exchange = Column(String, nullable=False)
+    name = Column(String, nullable=True)
+
+    # Alert settings
+    target_price = Column(Float, nullable=True)
+    stop_loss_price = Column(Float, nullable=True)
+    alert_enabled = Column(Boolean, default=True)
+
+    # Notes and tags
+    notes = Column(Text, nullable=True)
+    tags = Column(String, nullable=True)  # Comma-separated tags
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    user = relationship("User", back_populates="watchlist_items")
+
+class AlertLog(Base):
+    __tablename__ = "alert_log"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    watchlist_id = Column(Integer, ForeignKey("watchlist.id"), nullable=True)
+
+    # Alert details
+    symbol = Column(String, nullable=False)
+    alert_type = Column(String, nullable=False)  # 'PRICE_TARGET', 'STOP_LOSS', 'VOLUME', etc.
+    message = Column(Text, nullable=False)
+    current_price = Column(Float, nullable=True)
+    trigger_price = Column(Float, nullable=True)
+
+    # Delivery status
+    sent_email = Column(Boolean, default=False)
+    sent_sms = Column(Boolean, default=False)
+    sent_push = Column(Boolean, default=False)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    user = relationship("User", back_populates="alert_logs")
+    watchlist_item = relationship("Watchlist")

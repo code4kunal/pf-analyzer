@@ -17,3 +17,5 @@ python-dateutil==2.8.2
 pyxirr==0.10.2
 alembic==1.12.1
 python-dotenv==1.0.0
+twilio==8.10.3
+sendgrid==6.11.0
