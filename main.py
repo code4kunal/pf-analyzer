@@ -59,18 +59,22 @@ async def init_user(db: Session = Depends(get_db)):
         if existing_user:
             return {"message": "User already exists", "username": existing_user.username, "id": existing_user.id}
 
-        # Create default user with simple hash to avoid bcrypt issues
-        user = User(
-            username="portfoliouser",
-            email="portfolio@example.com",
-            hashed_password="$2b$12$dummy_hash_for_production_user"  # Dummy hash since we don't need login
-        )
-        db.add(user)
+        # Create user with direct SQL to avoid bcrypt issues
+        from sqlalchemy import text
+        db.execute(text("""
+            INSERT INTO users (username, email, hashed_password, is_active)
+            VALUES ('portfoliouser', 'portfolio@example.com', 'dummy_hash', 1)
+        """))
         db.commit()
-        db.refresh(user)
 
-        logger.info(f"✅ Created production user: {user.username} (ID: {user.id})")
-        return {"message": "User created successfully", "username": user.username, "id": user.id}
+        # Verify creation
+        user = db.query(User).filter(User.username == "portfoliouser").first()
+        if user:
+            logger.info(f"✅ Created production user: {user.username} (ID: {user.id})")
+            return {"message": "User created successfully", "username": user.username, "id": user.id}
+        else:
+            return {"error": "User creation failed"}
+
     except Exception as e:
         logger.error(f"❌ Error creating production user: {e}")
         db.rollback()
