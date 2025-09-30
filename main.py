@@ -889,16 +889,20 @@ async def sync_portfolio(db: Session = Depends(get_db)):
             for pos in day_positions:
                 if pos.get("quantity", 0) == 0 and pos.get("realised", 0) != 0:
                     # This is a closed position with realized P&L
-                    # Check if we already have this as a trade pair
+                    # Check if we already have this as a trade pair (more specific check)
                     existing_closed_trade = db.query(Trade).filter(
                         Trade.user_id == user.id,
                         Trade.symbol == pos.get("tradingsymbol"),
-                        Trade.trade_date >= datetime.now().date()
+                        Trade.trade_date >= datetime.now().date(),
+                        Trade.trade_type == "SELL",  # Check for sell trade specifically
+                        Trade.quantity == pos.get("sell_quantity", 0)
                     ).first()
 
-                    if not existing_closed_trade and pos.get("sell_quantity", 0) > 0:
-                        # Save the closed position as a completed trade
-                        # Create both buy and sell records for complete tracking
+                    # Skip creating trades from positions if we already have direct trades
+                    # Only create if we have no trades at all for this symbol today
+                    if not existing_closed_trade and kite_trades is None or len(kite_trades) == 0:
+                        # Only create trades from positions if direct trades are not available
+                        logger.info(f"Creating trade records from closed position: {pos.get('tradingsymbol')}")
 
                         # Buy trade
                         if pos.get("buy_quantity", 0) > 0:
@@ -932,6 +936,8 @@ async def sync_portfolio(db: Session = Depends(get_db)):
                             db.add(sell_trade)
 
                         closed_positions_synced += 1
+                    else:
+                        logger.info(f"Skipping position trade creation for {pos.get('tradingsymbol')} - direct trades already exist")
 
             db.commit()
 
@@ -980,6 +986,96 @@ async def debug_kite_raw(db: Session = Depends(get_db)):
         }
     except Exception as e:
         return {"error": str(e), "debug_info": "Failed to fetch Kite data"}
+
+# Cleanup endpoint to remove duplicate trades
+@app.post("/api/cleanup-duplicate-trades")
+async def cleanup_duplicate_trades(db: Session = Depends(get_db)):
+    """Remove duplicate trades that might have been created during sync"""
+    try:
+        # Get all trades grouped by symbol, trade_type, quantity, and date
+        trades = db.query(Trade).filter(Trade.user_id == 1).all()
+
+        duplicates_removed = 0
+        trade_groups = {}
+
+        # Group trades by key characteristics
+        for trade in trades:
+            key = (trade.symbol, trade.trade_type, trade.quantity, trade.trade_date.date())
+            if key not in trade_groups:
+                trade_groups[key] = []
+            trade_groups[key].append(trade)
+
+        # Remove duplicates (keep the first one, remove the rest)
+        for key, group in trade_groups.items():
+            if len(group) > 1:
+                # Sort by created_at and keep the first one
+                group.sort(key=lambda x: x.created_at if x.created_at else datetime.min)
+                for duplicate in group[1:]:  # Remove all except the first
+                    db.delete(duplicate)
+                    duplicates_removed += 1
+                    logger.info(f"Removed duplicate trade: {duplicate.symbol} {duplicate.trade_type} {duplicate.quantity}")
+
+        db.commit()
+
+        return {
+            "message": f"Cleanup completed. Removed {duplicates_removed} duplicate trades.",
+            "duplicates_removed": duplicates_removed,
+            "unique_trades_remaining": len(trade_groups)
+        }
+
+    except Exception as e:
+        logger.error(f"Error during cleanup: {e}")
+        return {"error": str(e)}
+
+# Debug endpoint to check database status
+@app.get("/api/debug/database-status")
+async def debug_database_status(db: Session = Depends(get_db)):
+    """Check current database status and potential duplications"""
+    try:
+        # Count trades by date and type
+        trades = db.query(Trade).filter(Trade.user_id == 1).all()
+        holdings = db.query(Holding).filter(Holding.user_id == 1).all()
+
+        trade_summary = {}
+        for trade in trades:
+            date_key = trade.trade_date.date() if trade.trade_date else "unknown"
+            if date_key not in trade_summary:
+                trade_summary[date_key] = {"BUY": 0, "SELL": 0, "total": 0}
+            trade_summary[date_key][trade.trade_type] += 1
+            trade_summary[date_key]["total"] += 1
+
+        # Check for potential duplicates
+        duplicate_analysis = {}
+        for trade in trades:
+            key = f"{trade.symbol}_{trade.trade_type}_{trade.quantity}_{trade.trade_date.date() if trade.trade_date else 'unknown'}"
+            if key not in duplicate_analysis:
+                duplicate_analysis[key] = 0
+            duplicate_analysis[key] += 1
+
+        potential_duplicates = {k: v for k, v in duplicate_analysis.items() if v > 1}
+
+        return {
+            "total_trades": len(trades),
+            "total_holdings": len(holdings),
+            "trades_by_date": trade_summary,
+            "potential_duplicates": potential_duplicates,
+            "duplicate_count": sum(v - 1 for v in potential_duplicates.values()),
+            "trade_details": [
+                {
+                    "id": t.id,
+                    "symbol": t.symbol,
+                    "type": t.trade_type,
+                    "quantity": t.quantity,
+                    "price": t.price,
+                    "total_cost": t.total_cost,
+                    "date": t.trade_date.isoformat() if t.trade_date else None,
+                    "zerodha_trade_id": t.zerodha_trade_id
+                } for t in trades
+            ]
+        }
+
+    except Exception as e:
+        return {"error": str(e)}
 
 # Test endpoint to demonstrate performance with today's P&L
 @app.get("/api/test-performance-with-pnl")
