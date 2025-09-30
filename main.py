@@ -505,11 +505,20 @@ async def get_performance(
         metrics["today_realized"] = today_realized
         metrics["today_unrealized"] = today_unrealized
 
-        # Update total returns to include today's P&L
-        original_returns = metrics.get("absolute_returns", 0)
-        metrics["absolute_returns"] = original_returns + today_realized + today_unrealized
+        # Check if we have current holdings to avoid double-counting for closed positions
+        current_investment = metrics.get("total_investment", 0)
+        current_value = metrics.get("current_value", 0)
 
-        logger.info(f"Enhanced performance with today's P&L - Original: {original_returns}, Today: {today_realized + today_unrealized}, New Total: {metrics['absolute_returns']}")
+        # Only add today's P&L if we have open positions (holdings)
+        # For closed positions, the performance calculator already includes all P&L
+        if current_investment > 0 or current_value > 0:
+            # Update total returns to include today's P&L for open positions
+            original_returns = metrics.get("absolute_returns", 0)
+            metrics["absolute_returns"] = original_returns + today_realized + today_unrealized
+            logger.info(f"Enhanced performance with today's P&L for open positions - Original: {original_returns}, Today: {today_realized + today_unrealized}, New Total: {metrics['absolute_returns']}")
+        else:
+            # For fully closed positions, don't add today's P&L to avoid double-counting
+            logger.info(f"Skipping today's P&L addition for closed positions to avoid double-counting. Realized P&L: {today_realized}, Performance calculator already accounts for closed trades.")
     else:
         logger.info("No today's P&L data found to add to performance metrics")
 
