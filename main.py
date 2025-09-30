@@ -1117,6 +1117,102 @@ async def get_account_balance(db: Session = Depends(get_db)):
     except Exception as e:
         return {"error": str(e)}
 
+# Merge trades based on date, security, and price
+@app.post("/api/merge-trades")
+async def merge_trades(db: Session = Depends(get_db)):
+    """Merge trades with same date, symbol, and price into consolidated trades"""
+    try:
+        # First, remove any exact duplicates (same zerodha_trade_id)
+        all_trades = db.query(Trade).filter(Trade.user_id == 1).all()
+
+        # Group by zerodha_trade_id to find exact duplicates
+        trade_groups = {}
+        for trade in all_trades:
+            if trade.zerodha_trade_id:
+                if trade.zerodha_trade_id not in trade_groups:
+                    trade_groups[trade.zerodha_trade_id] = []
+                trade_groups[trade.zerodha_trade_id].append(trade)
+
+        # Remove exact duplicates (keep first, delete rest)
+        duplicates_removed = 0
+        for trade_id, trades in trade_groups.items():
+            if len(trades) > 1:
+                # Keep the first trade, delete the rest
+                for duplicate_trade in trades[1:]:
+                    db.delete(duplicate_trade)
+                    duplicates_removed += 1
+
+        db.commit()
+
+        # Now get updated list for merging
+        all_trades = db.query(Trade).filter(Trade.user_id == 1).all()
+
+        # Group trades by date, symbol, trade_type, and price for merging
+        merge_groups = {}
+        for trade in all_trades:
+            trade_date_str = trade.trade_date.date().isoformat() if trade.trade_date else "no_date"
+            # Round price to 2 decimal places for grouping
+            price_rounded = round(trade.price, 2)
+            merge_key = f"{trade_date_str}_{trade.symbol}_{trade.trade_type}_{price_rounded}"
+
+            if merge_key not in merge_groups:
+                merge_groups[merge_key] = []
+            merge_groups[merge_key].append(trade)
+
+        # Merge trades within each group
+        merged_count = 0
+        trades_before = len(all_trades)
+
+        for merge_key, trades in merge_groups.items():
+            if len(trades) > 1:
+                # Sort by trade time to keep the earliest
+                trades.sort(key=lambda t: t.trade_date if t.trade_date else datetime.min)
+                master_trade = trades[0]
+
+                # Merge quantities and costs
+                total_quantity = sum(t.quantity for t in trades)
+                total_cost = sum(t.total_cost for t in trades)
+                total_brokerage = sum(t.brokerage or 0 for t in trades)
+                total_taxes = sum(t.taxes or 0 for t in trades)
+
+                # Calculate weighted average price
+                weighted_price = total_cost / total_quantity if total_quantity > 0 else master_trade.price
+
+                # Update the master trade
+                master_trade.quantity = total_quantity
+                master_trade.price = round(weighted_price, 2)
+                master_trade.total_cost = total_cost
+                master_trade.brokerage = total_brokerage
+                master_trade.taxes = total_taxes
+
+                # Collect trade IDs for reference
+                merged_trade_ids = [str(t.id) for t in trades[1:]]
+
+                # Delete the other trades
+                for trade_to_delete in trades[1:]:
+                    db.delete(trade_to_delete)
+                    merged_count += 1
+
+        db.commit()
+
+        # Get final count
+        final_trades = db.query(Trade).filter(Trade.user_id == 1).all()
+        trades_after = len(final_trades)
+
+        return {
+            "success": True,
+            "duplicates_removed": duplicates_removed,
+            "trades_merged": merged_count,
+            "trades_before": trades_before,
+            "trades_after": trades_after,
+            "reduction": trades_before - trades_after,
+            "message": f"Removed {duplicates_removed} duplicates and merged {merged_count} trades. Total trades reduced from {trades_before} to {trades_after}."
+        }
+
+    except Exception as e:
+        db.rollback()
+        return {"error": str(e)}
+
 # Test endpoint to demonstrate performance with today's P&L
 @app.get("/api/test-performance-with-pnl")
 async def test_performance_with_pnl(db: Session = Depends(get_db)):
