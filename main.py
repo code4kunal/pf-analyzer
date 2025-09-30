@@ -509,14 +509,30 @@ async def get_performance(
         original_returns = metrics.get("absolute_returns", 0)
         metrics["absolute_returns"] = original_returns + today_realized + today_unrealized
 
-        # Recalculate percentage returns with today's P&L
-        total_investment = metrics.get("total_investment", 0)
-        if total_investment > 0:
-            metrics["percentage_returns"] = (metrics["absolute_returns"] / total_investment) * 100
-
         logger.info(f"Enhanced performance with today's P&L - Original: {original_returns}, Today: {today_realized + today_unrealized}, New Total: {metrics['absolute_returns']}")
     else:
         logger.info("No today's P&L data found to add to performance metrics")
+
+    # Enhanced percentage calculation based on account net worth
+    try:
+        margins = kite_service.get_margins()
+        if margins:
+            equity = margins.get("equity", {})
+            net_worth = equity.get("net", 0)
+
+            if net_worth > 0:
+                # Calculate percentage based on total account value (net worth)
+                metrics["percentage_returns"] = (metrics["absolute_returns"] / net_worth) * 100
+                metrics["account_net_worth"] = net_worth
+                logger.info(f"Updated percentage based on net worth: {metrics['percentage_returns']:.2f}% (Returns: {metrics['absolute_returns']}, Net Worth: {net_worth})")
+            else:
+                # Fallback to investment-based calculation if net worth not available
+                total_investment = metrics.get("total_investment", 0)
+                if total_investment > 0:
+                    metrics["percentage_returns"] = (metrics["absolute_returns"] / total_investment) * 100
+    except Exception as e:
+        logger.warning(f"Could not fetch net worth for percentage calculation: {e}")
+        # Keep the original calculation as fallback
 
     return schemas.PerformanceMetrics(**metrics)
 
@@ -1074,6 +1090,30 @@ async def debug_database_status(db: Session = Depends(get_db)):
             ]
         }
 
+    except Exception as e:
+        return {"error": str(e)}
+
+# Get account balance/net worth from Kite
+@app.get("/api/account-balance")
+async def get_account_balance(db: Session = Depends(get_db)):
+    """Get account balance and margins from Kite"""
+    user = db.query(User).filter(User.id == 1).first()
+    if not user or not user.kite_access_token:
+        return {"error": "Kite not connected"}
+
+    kite_service.initialize(user.kite_access_token)
+    try:
+        margins = kite_service.get_margins()
+        if margins:
+            # Extract key balance information
+            equity = margins.get("equity", {})
+            return {
+                "available_cash": equity.get("available", {}).get("cash", 0),
+                "opening_balance": equity.get("available", {}).get("opening_balance", 0),
+                "net_worth": equity.get("net", 0),
+                "margins": margins
+            }
+        return {"error": "Could not fetch account balance"}
     except Exception as e:
         return {"error": str(e)}
 

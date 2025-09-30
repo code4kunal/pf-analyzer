@@ -172,5 +172,34 @@ class KiteService:
             logger.error(f"Error fetching LTP: {e}")
             return None
 
+    def get_margins(self) -> Optional[Dict]:
+        """Get account margins and available cash"""
+        try:
+            if not self.kite or not self.access_token:
+                return None
+            return self.kite.margins()
+        except Exception as e:
+            logger.error(f"Error fetching margins: {e}")
+            return None
+
+    def get_profile_margins(self) -> Optional[Dict]:
+        """Get user profile with margin details"""
+        try:
+            if not self.kite or not self.access_token:
+                return None
+            # Get both profile and margins for complete account info
+            profile = self.kite.profile()
+            margins = self.kite.margins()
+
+            if profile and margins:
+                return {
+                    "profile": profile,
+                    "margins": margins
+                }
+            return None
+        except Exception as e:
+            logger.error(f"Error fetching profile margins: {e}")
+            return None
+
 # Singleton instance
 kite_service = KiteService()

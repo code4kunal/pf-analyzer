@@ -129,6 +129,7 @@ class PerformanceMetrics(BaseModel):
     absolute_returns: float
     percentage_returns: float
     realized_pnl: Optional[float] = 0
+    account_net_worth: Optional[float] = 0
     xirr: Optional[float]
     cagr: Optional[float]
     max_drawdown: Optional[float]
