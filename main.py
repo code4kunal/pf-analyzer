@@ -1222,6 +1222,43 @@ async def merge_trades(db: Session = Depends(get_db)):
         db.rollback()
         return {"error": str(e)}
 
+# Debug performance calculation step by step
+@app.get("/api/debug-performance-calculation")
+async def debug_performance_calculation(db: Session = Depends(get_db)):
+    """Debug performance calculation step by step"""
+    calculator = PerformanceCalculator(db, user_id=1)
+
+    # Get raw performance from calculator only
+    raw_metrics = calculator.calculate_portfolio_metrics("ALL")
+
+    # Check what today's P&L would be
+    today_pnl_data = {"today_realized": 0, "today_unrealized": 0, "stored_pnl": 0}
+
+    # Check stored trades P&L
+    today = date.today()
+    today_trades = db.query(Trade).filter(
+        Trade.user_id == 1,
+        Trade.trade_date >= today
+    ).all()
+
+    if today_trades:
+        buy_total = sum(t.total_cost for t in today_trades if t.trade_type == TradeType.BUY)
+        sell_total = sum(t.quantity * t.price - t.brokerage - t.taxes
+                        for t in today_trades if t.trade_type == TradeType.SELL)
+        today_pnl_data["stored_pnl"] = sell_total - buy_total
+
+    return {
+        "raw_calculator_metrics": raw_metrics,
+        "today_pnl_data": today_pnl_data,
+        "analysis": {
+            "total_investment": raw_metrics.get("total_investment", 0),
+            "current_value": raw_metrics.get("current_value", 0),
+            "realized_pnl": raw_metrics.get("realized_pnl", 0),
+            "absolute_returns": raw_metrics.get("absolute_returns", 0),
+            "formula_check": f"realized_pnl + (current_value - total_investment) = {raw_metrics.get('realized_pnl', 0)} + ({raw_metrics.get('current_value', 0)} - {raw_metrics.get('total_investment', 0)}) = {raw_metrics.get('realized_pnl', 0) + (raw_metrics.get('current_value', 0) - raw_metrics.get('total_investment', 0))}"
+        }
+    }
+
 # Test endpoint to demonstrate performance with today's P&L
 @app.get("/api/test-performance-with-pnl")
 async def test_performance_with_pnl(db: Session = Depends(get_db)):
