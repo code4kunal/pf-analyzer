@@ -1,9 +1,10 @@
 from pydantic_settings import BaseSettings
 from typing import Optional
+import os
 
 class Settings(BaseSettings):
-    # Database
-    database_url: str = "sqlite:///./portfolio.db"
+    # Database - Railway provides DATABASE_URL automatically for PostgreSQL
+    database_url: str = os.getenv("DATABASE_URL", "sqlite:///./portfolio.db")
 
     # Security
     secret_key: str = "your-secret-key-change-this"

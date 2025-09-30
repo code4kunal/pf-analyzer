@@ -27,6 +27,42 @@ Base.metadata.create_all(bind=engine)
 # Initialize FastAPI app
 app = FastAPI(title="Portfolio Analyzer", version="1.0.0")
 
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database with default user on startup"""
+    try:
+        from database import SessionLocal
+        db = SessionLocal()
+
+        # Check if we need to create the default user
+        existing_user = db.query(User).filter(User.id == 1).first()
+
+        if not existing_user:
+            logger.info("Creating default user for production...")
+
+            # Create default user for production
+            default_user = User(
+                id=1,
+                username="testuser",
+                email="test@example.com",
+                hashed_password="dummy_hash_production",  # Bypass bcrypt for production
+                is_active=True
+            )
+
+            db.add(default_user)
+            db.commit()
+
+            logger.info("✅ Default user created successfully for production")
+        else:
+            logger.info(f"✅ Default user already exists: {existing_user.username}")
+
+        db.close()
+
+    except Exception as e:
+        logger.error(f"❌ Error initializing database: {e}")
+        # Don't fail startup if user creation fails
+        pass
+
 # Create directories if they don't exist
 os.makedirs("static/css", exist_ok=True)
 os.makedirs("static/js", exist_ok=True)
