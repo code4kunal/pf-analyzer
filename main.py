@@ -1222,6 +1222,119 @@ async def merge_trades(db: Session = Depends(get_db)):
         db.rollback()
         return {"error": str(e)}
 
+# Debug database connection and persistence
+@app.get("/api/debug-database-connection")
+async def debug_database_connection(db: Session = Depends(get_db)):
+    """Debug database connection and persistence issues"""
+    try:
+        import os
+        from database import SQLALCHEMY_DATABASE_URL
+
+        # Get environment info
+        database_url = os.getenv("DATABASE_URL", "Not set")
+
+        # Check if database URL is pointing to the same database
+        database_info = {
+            "database_url_env": database_url,
+            "sqlalchemy_url": SQLALCHEMY_DATABASE_URL,
+            "url_type": "postgresql" if "postgres" in database_url.lower() else "sqlite" if "sqlite" in database_url.lower() else "unknown"
+        }
+
+        # Check current user and token status
+        user = db.query(User).filter(User.id == 1).first()
+        user_info = {
+            "user_exists": user is not None,
+            "user_id": user.id if user else None,
+            "username": user.username if user else None,
+            "has_kite_token": bool(user.kite_access_token) if user else False,
+            "token_preview": user.kite_access_token[:10] + "..." if user and user.kite_access_token else None
+        }
+
+        # Check table existence
+        from sqlalchemy import inspect
+        inspector = inspect(db.bind)
+        table_names = inspector.get_table_names()
+
+        # Count records in key tables
+        record_counts = {}
+        if 'users' in table_names:
+            record_counts['users'] = db.query(User).count()
+        if 'trades' in table_names:
+            record_counts['trades'] = db.query(Trade).count()
+        if 'holdings' in table_names:
+            record_counts['holdings'] = db.query(Holding).count()
+
+        return {
+            "database_info": database_info,
+            "user_info": user_info,
+            "tables": table_names,
+            "record_counts": record_counts,
+            "diagnosis": {
+                "persistent_db": "postgresql" in database_url.lower(),
+                "potential_issue": "Database URL changes between deployments" if "sqlite" in database_url.lower() else "Database connection or Railway service restart"
+            }
+        }
+
+    except Exception as e:
+        return {"error": str(e)}
+
+# Explicit database management endpoints
+@app.post("/api/admin/clear-trades")
+async def clear_trades_only(confirm: bool = False, db: Session = Depends(get_db)):
+    """Explicitly clear only trades data (keeping user and tokens)"""
+    if not confirm:
+        return {"error": "Add ?confirm=true to confirm deletion of all trades"}
+
+    try:
+        # Delete trades and holdings but keep user and tokens
+        trades_deleted = db.query(Trade).delete()
+        holdings_deleted = db.query(Holding).delete()
+        journals_deleted = db.query(JournalEntry).delete()
+
+        db.commit()
+
+        return {
+            "success": True,
+            "message": "Cleared trades data only, preserved user and Kite tokens",
+            "deleted": {
+                "trades": trades_deleted,
+                "holdings": holdings_deleted,
+                "journals": journals_deleted
+            }
+        }
+    except Exception as e:
+        db.rollback()
+        return {"error": str(e)}
+
+@app.post("/api/admin/clear-all-data")
+async def clear_all_data(confirm: bool = False, db: Session = Depends(get_db)):
+    """Explicitly clear ALL data including users (dangerous!)"""
+    if not confirm:
+        return {"error": "Add ?confirm=true to confirm deletion of ALL data including users and tokens"}
+
+    try:
+        # Delete everything
+        trades_deleted = db.query(Trade).delete()
+        holdings_deleted = db.query(Holding).delete()
+        journals_deleted = db.query(JournalEntry).delete()
+        users_deleted = db.query(User).delete()
+
+        db.commit()
+
+        return {
+            "success": True,
+            "message": "Cleared ALL data including users and tokens",
+            "deleted": {
+                "trades": trades_deleted,
+                "holdings": holdings_deleted,
+                "journals": journals_deleted,
+                "users": users_deleted
+            }
+        }
+    except Exception as e:
+        db.rollback()
+        return {"error": str(e)}
+
 # Debug performance calculation step by step
 @app.get("/api/debug-performance-calculation")
 async def debug_performance_calculation(db: Session = Depends(get_db)):
