@@ -127,20 +127,66 @@ class PerformanceCalculator:
         # Calculate basic metrics
         total_investment = 0
         current_value = 0
+        total_buy_value = 0
+        total_sell_value = 0
         cashflows = []
         portfolio_values = []
         daily_returns = []
         winning_trades = 0
         losing_trades = 0
 
+        # Group trades by symbol to match buys and sells
+        symbol_trades = {}
         for trade in trades:
+            if trade.symbol not in symbol_trades:
+                symbol_trades[trade.symbol] = {"buys": [], "sells": []}
             if trade.trade_type == models.TradeType.BUY:
-                total_investment += trade.total_cost
-                cashflows.append((trade.trade_date.date(), -trade.total_cost))
-            else:  # SELL
-                sell_value = trade.quantity * trade.price - trade.brokerage - trade.taxes
-                current_value += sell_value
-                cashflows.append((trade.trade_date.date(), sell_value))
+                symbol_trades[trade.symbol]["buys"].append(trade)
+                total_buy_value += trade.total_cost
+            else:
+                symbol_trades[trade.symbol]["sells"].append(trade)
+                total_sell_value += trade.total_cost
+
+        # Calculate realized P&L for closed positions
+        realized_pnl = 0
+        for symbol, trades_dict in symbol_trades.items():
+            buy_qty = sum(t.quantity for t in trades_dict["buys"])
+            sell_qty = sum(t.quantity for t in trades_dict["sells"])
+
+            # If position is closed (buy qty = sell qty), calculate realized P&L
+            if buy_qty == sell_qty and buy_qty > 0:
+                buy_value = sum(t.total_cost for t in trades_dict["buys"])
+                sell_value = sum(t.total_cost for t in trades_dict["sells"])
+                symbol_pnl = sell_value - buy_value
+                realized_pnl += symbol_pnl
+
+                # For closed positions (squared off):
+                # Investment is 0 (money came in and went out)
+                # Current value is 0 (no holdings)
+                # Only the P&L matters for returns
+                # We'll add the P&L to absolute returns directly later
+
+                # Add to cashflows for XIRR calculation
+                for trade in trades_dict["buys"]:
+                    cashflows.append((trade.trade_date.date(), -trade.total_cost))
+                for trade in trades_dict["sells"]:
+                    cashflows.append((trade.trade_date.date(), trade.total_cost))
+
+                # Record for win/loss tracking
+                if symbol_pnl > 0:
+                    winning_trades += 1
+                else:
+                    losing_trades += 1
+            else:
+                # For open positions, only count buy value as investment
+                for trade in trades_dict["buys"]:
+                    total_investment += trade.total_cost
+                    cashflows.append((trade.trade_date.date(), -trade.total_cost))
+                # Sells reduce the position but generate cash
+                for trade in trades_dict["sells"]:
+                    sell_value = trade.quantity * trade.price - trade.brokerage - trade.taxes
+                    current_value += sell_value
+                    cashflows.append((trade.trade_date.date(), sell_value))
 
                 # Check if winning or losing trade
                 if trade.actual_exit_price:
@@ -166,8 +212,18 @@ class PerformanceCalculator:
             cashflows.append((date.today(), current_value))
 
         # Calculate returns
-        absolute_returns = current_value - total_investment
-        percentage_returns = (absolute_returns / total_investment * 100) if total_investment > 0 else 0
+        # For closed positions, the realized P&L is the return
+        # For open positions, it's current_value - investment
+        absolute_returns = realized_pnl + (current_value - total_investment)
+
+        # For percentage, if all positions are closed (no investment), use realized P&L
+        if total_investment > 0:
+            percentage_returns = (absolute_returns / total_investment * 100)
+        elif total_buy_value > 0:
+            # All positions closed, use total buy value as base
+            percentage_returns = (realized_pnl / total_buy_value * 100)
+        else:
+            percentage_returns = 0
 
         # Calculate XIRR
         xirr_value = self.calculate_xirr(cashflows) if len(cashflows) >= 2 else None
@@ -189,6 +245,7 @@ class PerformanceCalculator:
             "current_value": round(current_value, 2),
             "absolute_returns": round(absolute_returns, 2),
             "percentage_returns": round(percentage_returns, 2),
+            "realized_pnl": round(realized_pnl, 2),
             "xirr": xirr_value,
             "cagr": cagr_value,
             "max_drawdown": None,  # Would need historical portfolio values
