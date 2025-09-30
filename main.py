@@ -4,13 +4,13 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import uvicorn
 import logging
 import os
 
 from database import engine, get_db
-from models import Base, User, Trade, JournalEntry, Holding
+from models import Base, User, Trade, JournalEntry, Holding, TradeType
 import schemas
 import auth
 from kite_integration import kite_service
@@ -27,9 +27,8 @@ Base.metadata.create_all(bind=engine)
 # Initialize FastAPI app
 app = FastAPI(title="Portfolio Analyzer", version="1.0.0")
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize database with default user on startup"""
+def initialize_database():
+    """Initialize database with default user"""
     try:
         from database import SessionLocal
         db = SessionLocal()
@@ -62,6 +61,11 @@ async def startup_event():
         logger.error(f"❌ Error initializing database: {e}")
         # Don't fail startup if user creation fails
         pass
+
+@app.on_event("startup")
+async def startup_event():
+    """Application startup"""
+    initialize_database()
 
 # Create directories if they don't exist
 os.makedirs("static/css", exist_ok=True)
@@ -477,7 +481,6 @@ async def get_performance(
             logger.warning(f"Failed to fetch today's positions for performance: {e}")
 
     # Fallback: Check for today's trades in database (from recent syncs)
-    from datetime import date
     today = date.today()
     today_trades = db.query(Trade).filter(
         Trade.user_id == 1,
