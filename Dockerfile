@@ -27,5 +27,5 @@ RUN mkdir -p /app/uploads
 # Expose port (Railway will set $PORT)
 EXPOSE 8000
 
-# Start command
-CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
+# Start command - use shell form for environment variable expansion
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]
