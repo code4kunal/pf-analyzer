@@ -65,12 +65,8 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 @app.get("/health", tags=["Health"])
 async def health_check():
-    """Health check endpoint"""
-    return {
-        "status": "healthy",
-        "service": settings.app_name,
-        "version": "1.0.0"
-    }
+    """Health check endpoint for Railway"""
+    return {"status": "ok"}
 
 # ============================================================================
 # AUTHENTICATION ENDPOINTS
