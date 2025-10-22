@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from pydantic import BaseModel, EmailStr, Field, validator
 from datetime import datetime, date
 from typing import Optional, List
@@ -23,12 +25,6 @@ class TokenData(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
-
-class LoginResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    user: "UserResponse"
-    is_temp_password: bool
 
 class PasswordChangeRequest(BaseModel):
     old_password: str
@@ -62,11 +58,6 @@ class UserCreate(UserBase):
 class UserInvite(UserBase):
     role: UserRole = UserRole.EMPLOYEE
 
-class UserInviteResponse(BaseModel):
-    user: UserResponse
-    temporary_password: str
-    message: str = "User invited successfully. Please share these credentials securely."
-
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     phone: Optional[str] = None
@@ -96,6 +87,17 @@ class UserListResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+class UserInviteResponse(BaseModel):
+    user: UserResponse
+    temporary_password: str
+    message: str = "User invited successfully. Please share these credentials securely."
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserResponse
+    is_temp_password: bool
 
 # ============================================================================
 # CUSTOMER SCHEMAS
