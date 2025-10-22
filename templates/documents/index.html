@@ -1,0 +1,358 @@
+{% extends "components/base.html" %}
+
+{% block title %}Documents - GrowFolio CMS{% endblock %}
+{% block page_title %}Documents{% endblock %}
+
+{% block content %}
+<div x-data="documentsApp()" x-init="loadDocuments()">
+    <!-- Page Header -->
+    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 gap-4">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">Document Management</h1>
+            <p class="text-gray-600 mt-1">Upload and manage customer documents</p>
+        </div>
+        <button
+            @click="showUploadModal = true"
+            class="px-4 py-2 bg-primary hover:bg-blue-900 text-white rounded-lg transition inline-flex items-center"
+        >
+            <i class="fas fa-upload mr-2"></i>
+            Upload Document
+        </button>
+    </div>
+
+    <!-- Filters -->
+    <div class="bg-white rounded-lg shadow mb-6 p-6">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <!-- Customer Filter -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    <i class="fas fa-user mr-1"></i> Customer
+                </label>
+                <input
+                    type="text"
+                    x-model="filters.customer_search"
+                    @input.debounce.500ms="loadDocuments()"
+                    placeholder="Search by customer name..."
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                >
+            </div>
+
+            <!-- Category Filter -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">Category</label>
+                <select
+                    x-model="filters.category"
+                    @change="loadDocuments()"
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                >
+                    <option value="">All Categories</option>
+                    <option value="KYC">KYC</option>
+                    <option value="AGREEMENT">Agreement</option>
+                    <option value="BANK_DETAILS">Bank Details</option>
+                    <option value="INVESTMENT_PROOF">Investment Proof</option>
+                    <option value="OTHER">Other</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <!-- Documents Grid -->
+    <div x-show="!loading || documents.length" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6" style="display: none;">
+        <template x-for="doc in documents" :key="doc.id">
+            <div class="bg-white rounded-lg shadow hover:shadow-lg transition p-6">
+                <!-- Document Icon -->
+                <div class="flex items-center mb-4">
+                    <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                        <i class="fas fa-file-alt text-blue-600 text-2xl"></i>
+                    </div>
+                    <div class="ml-3 flex-1 min-w-0">
+                        <span class="px-2 py-1 text-xs font-medium rounded"
+                              :class="{
+                                'bg-green-100 text-green-800': doc.document_category === 'KYC',
+                                'bg-blue-100 text-blue-800': doc.document_category === 'AGREEMENT',
+                                'bg-purple-100 text-purple-800': doc.document_category === 'BANK_DETAILS',
+                                'bg-orange-100 text-orange-800': doc.document_category === 'INVESTMENT_PROOF',
+                                'bg-gray-100 text-gray-800': doc.document_category === 'OTHER'
+                              }"
+                              x-text="doc.document_category.replace('_', ' ')">
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Document Info -->
+                <h3 class="font-medium text-gray-900 truncate mb-1" x-text="doc.document_name"></h3>
+                <p class="text-sm text-gray-600 truncate mb-3" x-text="doc.customer_name || 'Unknown Customer'"></p>
+
+                <div class="text-xs text-gray-500 mb-4">
+                    <i class="fas fa-calendar mr-1"></i>
+                    <span x-text="formatDate(doc.upload_date)"></span>
+                </div>
+
+                <!-- Actions -->
+                <div class="flex gap-2">
+                    <a
+                        :href="`${API_URL}/documents/${doc.id}/download`"
+                        target="_blank"
+                        class="flex-1 text-center px-3 py-2 text-sm bg-primary text-white rounded-lg hover:bg-blue-900 transition"
+                    >
+                        <i class="fas fa-download mr-1"></i> Download
+                    </a>
+                    <button
+                        @click="deleteDocument(doc.id)"
+                        class="px-3 py-2 text-sm bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition"
+                    >
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </div>
+        </template>
+    </div>
+
+    <!-- Loading State -->
+    <div x-show="loading && !documents.length" class="text-center py-12 bg-white rounded-lg shadow">
+        <div class="spinner mx-auto mb-4"></div>
+        <p class="text-gray-600">Loading documents...</p>
+    </div>
+
+    <!-- Empty State -->
+    <div x-show="!loading && documents.length === 0" class="text-center py-12 bg-white rounded-lg shadow">
+        <i class="fas fa-folder-open text-gray-400 text-5xl mb-4"></i>
+        <h3 class="text-lg font-medium text-gray-900 mb-2">No documents found</h3>
+        <p class="text-gray-600 mb-6">Upload your first document to get started</p>
+        <button
+            @click="showUploadModal = true"
+            class="inline-flex items-center px-4 py-2 bg-primary text-white rounded-lg hover:bg-blue-900"
+        >
+            <i class="fas fa-upload mr-2"></i>
+            Upload Document
+        </button>
+    </div>
+
+    <!-- Upload Modal -->
+    <div x-show="showUploadModal"
+         @click.self="closeUploadModal()"
+         class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+         style="display: none;">
+        <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full">
+            <div class="p-6 border-b border-gray-200 flex items-center justify-between">
+                <h3 class="text-xl font-semibold text-gray-900">Upload Document</h3>
+                <button @click="closeUploadModal()" class="text-gray-400 hover:text-gray-600">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+
+            <form @submit.prevent="uploadDocument()" class="p-6">
+                <div class="space-y-4">
+                    <!-- Customer Selection -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Customer ID <span class="text-red-500">*</span>
+                        </label>
+                        <input
+                            type="number"
+                            x-model="uploadForm.customer_id"
+                            required
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                            placeholder="Enter customer ID"
+                        >
+                        <p class="mt-1 text-xs text-gray-500">Tip: Get customer ID from the customers page</p>
+                    </div>
+
+                    <!-- Document Name -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Document Name <span class="text-red-500">*</span>
+                        </label>
+                        <input
+                            type="text"
+                            x-model="uploadForm.document_name"
+                            required
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                            placeholder="e.g., PAN Card, Aadhar Card"
+                        >
+                    </div>
+
+                    <!-- Category -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Category <span class="text-red-500">*</span>
+                        </label>
+                        <select
+                            x-model="uploadForm.document_category"
+                            required
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                        >
+                            <option value="">Select category</option>
+                            <option value="KYC">KYC</option>
+                            <option value="AGREEMENT">Agreement</option>
+                            <option value="BANK_DETAILS">Bank Details</option>
+                            <option value="INVESTMENT_PROOF">Investment Proof</option>
+                            <option value="OTHER">Other</option>
+                        </select>
+                    </div>
+
+                    <!-- File Upload -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            File <span class="text-red-500">*</span>
+                        </label>
+                        <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-primary transition">
+                            <input
+                                type="file"
+                                @change="handleFileSelect"
+                                accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                                required
+                                class="hidden"
+                                id="fileInput"
+                            >
+                            <label for="fileInput" class="cursor-pointer">
+                                <i class="fas fa-cloud-upload-alt text-4xl text-gray-400 mb-2"></i>
+                                <p class="text-sm text-gray-600">
+                                    <span class="text-primary font-medium">Click to upload</span> or drag and drop
+                                </p>
+                                <p class="text-xs text-gray-500 mt-1">PDF, JPG, PNG, DOC up to 10MB</p>
+                            </label>
+                            <p x-show="selectedFile" class="mt-3 text-sm text-gray-900 font-medium" x-text="selectedFile?.name"></p>
+                        </div>
+                    </div>
+
+                    <!-- Description -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Description</label>
+                        <textarea
+                            x-model="uploadForm.description"
+                            rows="3"
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                            placeholder="Optional description"
+                        ></textarea>
+                    </div>
+                </div>
+
+                <!-- Modal Actions -->
+                <div class="flex justify-end gap-4 mt-6">
+                    <button
+                        type="button"
+                        @click="closeUploadModal()"
+                        class="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="submit"
+                        :disabled="uploading"
+                        class="px-6 py-2 bg-primary hover:bg-blue-900 text-white rounded-lg transition"
+                        :class="{ 'opacity-50 cursor-not-allowed': uploading }"
+                    >
+                        <span x-show="!uploading">
+                            <i class="fas fa-upload mr-2"></i> Upload
+                        </span>
+                        <span x-show="uploading">Uploading...</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function documentsApp() {
+    return {
+        documents: [],
+        loading: false,
+        showUploadModal: false,
+        uploading: false,
+        selectedFile: null,
+        filters: {
+            customer_search: '',
+            category: ''
+        },
+        uploadForm: {
+            customer_id: '',
+            document_name: '',
+            document_category: '',
+            description: ''
+        },
+
+        async loadDocuments() {
+            this.loading = true;
+            try {
+                // For simplicity, loading all documents
+                // In production, you'd filter by customer_id from the API
+                const response = await axios.get(`${API_URL}/customers/1/documents`);
+                this.documents = response.data || [];
+            } catch (error) {
+                console.error('Error loading documents:', error);
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        handleFileSelect(event) {
+            this.selectedFile = event.target.files[0];
+        },
+
+        closeUploadModal() {
+            this.showUploadModal = false;
+            this.uploadForm = {
+                customer_id: '',
+                document_name: '',
+                document_category: '',
+                description: ''
+            };
+            this.selectedFile = null;
+            document.getElementById('fileInput').value = '';
+        },
+
+        async uploadDocument() {
+            if (!this.selectedFile) {
+                showToast('Please select a file', 'error');
+                return;
+            }
+
+            this.uploading = true;
+            showLoading();
+
+            try {
+                const formData = new FormData();
+                formData.append('file', this.selectedFile);
+                formData.append('customer_id', this.uploadForm.customer_id);
+                formData.append('document_name', this.uploadForm.document_name);
+                formData.append('document_category', this.uploadForm.document_category);
+                if (this.uploadForm.description) {
+                    formData.append('description', this.uploadForm.description);
+                }
+
+                await axios.post(`${API_URL}/documents/upload`, formData, {
+                    headers: { 'Content-Type': 'multipart/form-data' }
+                });
+
+                showToast('Document uploaded successfully', 'success');
+                this.closeUploadModal();
+                await this.loadDocuments();
+            } catch (error) {
+                console.error('Error uploading document:', error);
+                showToast(error.response?.data?.detail || 'Failed to upload document', 'error');
+            } finally {
+                this.uploading = false;
+                hideLoading();
+            }
+        },
+
+        async deleteDocument(docId) {
+            if (!confirm('Are you sure you want to delete this document?')) return;
+
+            try {
+                await axios.delete(`${API_URL}/documents/${docId}`);
+                showToast('Document deleted successfully', 'success');
+                await this.loadDocuments();
+            } catch (error) {
+                console.error('Error deleting document:', error);
+                showToast('Failed to delete document', 'error');
+            }
+        }
+    }
+}
+</script>
+{% endblock %}

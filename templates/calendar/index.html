@@ -1,0 +1,358 @@
+{% extends "components/base.html" %}
+
+{% block title %}Calendar - GrowFolio CMS{% endblock %}
+{% block page_title %}Calendar & Events{% endblock %}
+
+{% block head %}
+<!-- FullCalendar CSS -->
+<link href='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.9/index.global.min.css' rel='stylesheet' />
+<script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.9/index.global.min.js'></script>
+{% endblock %}
+
+{% block content %}
+<div x-data="calendarApp()" x-init="loadEvents()">
+    <!-- Page Header -->
+    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 gap-4">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">Calendar & Events</h1>
+            <p class="text-gray-600 mt-1">Manage meetings, seminars, and client appointments</p>
+        </div>
+        <button
+            @click="openCreateModal()"
+            class="px-4 py-2 bg-primary hover:bg-blue-900 text-white rounded-lg transition inline-flex items-center"
+        >
+            <i class="fas fa-plus mr-2"></i>
+            Create Event
+        </button>
+    </div>
+
+    <!-- Calendar -->
+    <div class="bg-white rounded-lg shadow p-6 mb-6">
+        <div id="calendar"></div>
+    </div>
+
+    <!-- Upcoming Events List -->
+    <div class="bg-white rounded-lg shadow">
+        <div class="p-6 border-b border-gray-200">
+            <h3 class="text-lg font-semibold text-gray-900">Upcoming Events</h3>
+        </div>
+        <div class="p-6">
+            <div x-show="upcomingEvents.length > 0" class="space-y-4">
+                <template x-for="event in upcomingEvents" :key="event.id">
+                    <div class="flex items-start p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition cursor-pointer"
+                         @click="viewEvent(event)">
+                        <div class="w-12 h-12 rounded-lg flex flex-col items-center justify-center flex-shrink-0"
+                             :class="{
+                                'bg-blue-100 text-blue-600': event.event_type === 'SEMINAR',
+                                'bg-green-100 text-green-600': event.event_type === 'ONE_ON_ONE',
+                                'bg-purple-100 text-purple-600': event.event_type === 'GROUP_CALL',
+                                'bg-orange-100 text-orange-600': event.event_type === 'REVIEW_MEETING'
+                             }">
+                            <i class="fas fa-calendar-day"></i>
+                        </div>
+                        <div class="ml-4 flex-1">
+                            <h4 class="text-sm font-medium text-gray-900" x-text="event.title"></h4>
+                            <p class="text-xs text-gray-600 mt-1">
+                                <i class="fas fa-clock mr-1"></i>
+                                <span x-text="formatDateTime(event.start_time)"></span>
+                            </p>
+                            <div class="flex items-center gap-2 mt-2">
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
+                                      :class="{
+                                        'bg-blue-100 text-blue-800': event.event_type === 'SEMINAR',
+                                        'bg-green-100 text-green-800': event.event_type === 'ONE_ON_ONE',
+                                        'bg-purple-100 text-purple-800': event.event_type === 'GROUP_CALL',
+                                        'bg-orange-100 text-orange-800': event.event_type === 'REVIEW_MEETING'
+                                      }"
+                                      x-text="event.event_type.replace('_', ' ')">
+                                </span>
+                                <a x-show="event.meet_link" :href="event.meet_link" target="_blank"
+                                   class="text-xs text-primary hover:underline" @click.stop>
+                                    <i class="fas fa-video mr-1"></i> Join Meeting
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+            <p x-show="upcomingEvents.length === 0" class="text-center text-gray-500 py-8">
+                No upcoming events scheduled
+            </p>
+        </div>
+    </div>
+
+    <!-- Create/Edit Event Modal -->
+    <div x-show="showModal"
+         @click.self="closeModal()"
+         class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+         style="display: none;">
+        <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div class="p-6 border-b border-gray-200 flex items-center justify-between">
+                <h3 class="text-xl font-semibold text-gray-900" x-text="editingEvent ? 'Edit Event' : 'Create Event'"></h3>
+                <button @click="closeModal()" class="text-gray-400 hover:text-gray-600">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+
+            <form @submit.prevent="saveEvent()" class="p-6">
+                <div class="space-y-4">
+                    <!-- Title -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Title <span class="text-red-500">*</span>
+                        </label>
+                        <input
+                            type="text"
+                            x-model="eventForm.title"
+                            required
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                            placeholder="Event title"
+                        >
+                    </div>
+
+                    <!-- Event Type -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Event Type <span class="text-red-500">*</span>
+                        </label>
+                        <select
+                            x-model="eventForm.event_type"
+                            required
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                        >
+                            <option value="SEMINAR">Seminar</option>
+                            <option value="ONE_ON_ONE">One-on-One Meeting</option>
+                            <option value="GROUP_CALL">Group Call</option>
+                            <option value="REVIEW_MEETING">Review Meeting</option>
+                        </select>
+                    </div>
+
+                    <!-- Date & Time -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                Start Date & Time <span class="text-red-500">*</span>
+                            </label>
+                            <input
+                                type="datetime-local"
+                                x-model="eventForm.start_time"
+                                required
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                            >
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                End Date & Time <span class="text-red-500">*</span>
+                            </label>
+                            <input
+                                type="datetime-local"
+                                x-model="eventForm.end_time"
+                                required
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                            >
+                        </div>
+                    </div>
+
+                    <!-- Description -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Description
+                        </label>
+                        <textarea
+                            x-model="eventForm.description"
+                            rows="3"
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                            placeholder="Event description"
+                        ></textarea>
+                    </div>
+
+                    <!-- Location -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Location
+                        </label>
+                        <input
+                            type="text"
+                            x-model="eventForm.location"
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                            placeholder="Event location or online"
+                        >
+                    </div>
+
+                    <!-- Generate Meet Link -->
+                    <div class="flex items-center">
+                        <input
+                            type="checkbox"
+                            x-model="eventForm.generate_meet_link"
+                            class="w-4 h-4 text-primary border-gray-300 rounded focus:ring-primary"
+                        >
+                        <label class="ml-2 text-sm text-gray-700">
+                            Generate Google Meet link
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Modal Actions -->
+                <div class="flex justify-end gap-4 mt-6">
+                    <button
+                        type="button"
+                        @click="closeModal()"
+                        class="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="submit"
+                        :disabled="saving"
+                        class="px-6 py-2 bg-primary hover:bg-blue-900 text-white rounded-lg transition"
+                        :class="{ 'opacity-50 cursor-not-allowed': saving }"
+                    >
+                        <span x-show="!saving">
+                            <i class="fas fa-save mr-2"></i>
+                            <span x-text="editingEvent ? 'Update Event' : 'Create Event'"></span>
+                        </span>
+                        <span x-show="saving">Saving...</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function calendarApp() {
+    return {
+        events: [],
+        upcomingEvents: [],
+        calendar: null,
+        showModal: false,
+        saving: false,
+        editingEvent: null,
+        eventForm: {
+            title: '',
+            event_type: 'ONE_ON_ONE',
+            start_time: '',
+            end_time: '',
+            description: '',
+            location: '',
+            generate_meet_link: true
+        },
+
+        async loadEvents() {
+            try {
+                const response = await axios.get(`${API_URL}/events`);
+                this.events = response.data || [];
+                this.upcomingEvents = this.events.filter(e => new Date(e.start_time) > new Date()).slice(0, 10);
+                this.initCalendar();
+            } catch (error) {
+                console.error('Error loading events:', error);
+                showToast('Failed to load events', 'error');
+            }
+        },
+
+        initCalendar() {
+            const calendarEl = document.getElementById('calendar');
+            this.calendar = new FullCalendar.Calendar(calendarEl, {
+                initialView: 'dayGridMonth',
+                headerToolbar: {
+                    left: 'prev,next today',
+                    center: 'title',
+                    right: 'dayGridMonth,timeGridWeek,timeGridDay'
+                },
+                events: this.events.map(e => ({
+                    id: e.id,
+                    title: e.title,
+                    start: e.start_time,
+                    end: e.end_time,
+                    backgroundColor: this.getEventColor(e.event_type),
+                    borderColor: this.getEventColor(e.event_type)
+                })),
+                eventClick: (info) => {
+                    const event = this.events.find(e => e.id == info.event.id);
+                    if (event) this.viewEvent(event);
+                },
+                dateClick: (info) => {
+                    this.openCreateModal(info.dateStr);
+                }
+            });
+            this.calendar.render();
+        },
+
+        getEventColor(type) {
+            const colors = {
+                'SEMINAR': '#3B82F6',
+                'ONE_ON_ONE': '#10B981',
+                'GROUP_CALL': '#8B5CF6',
+                'REVIEW_MEETING': '#F59E0B'
+            };
+            return colors[type] || '#6B7280';
+        },
+
+        openCreateModal(date = null) {
+            this.editingEvent = null;
+            this.eventForm = {
+                title: '',
+                event_type: 'ONE_ON_ONE',
+                start_time: date ? `${date}T09:00` : '',
+                end_time: date ? `${date}T10:00` : '',
+                description: '',
+                location: '',
+                generate_meet_link: true
+            };
+            this.showModal = true;
+        },
+
+        viewEvent(event) {
+            this.editingEvent = event;
+            this.eventForm = {
+                title: event.title,
+                event_type: event.event_type,
+                start_time: event.start_time.slice(0, 16),
+                end_time: event.end_time.slice(0, 16),
+                description: event.description || '',
+                location: event.location || '',
+                generate_meet_link: false
+            };
+            this.showModal = true;
+        },
+
+        closeModal() {
+            this.showModal = false;
+            this.editingEvent = null;
+        },
+
+        async saveEvent() {
+            this.saving = true;
+            try {
+                const data = {
+                    ...this.eventForm,
+                    start_time: new Date(this.eventForm.start_time).toISOString(),
+                    end_time: new Date(this.eventForm.end_time).toISOString()
+                };
+
+                if (this.editingEvent) {
+                    await axios.put(`${API_URL}/events/${this.editingEvent.id}`, data);
+                    showToast('Event updated successfully', 'success');
+                } else {
+                    await axios.post(`${API_URL}/events`, data);
+                    showToast('Event created successfully', 'success');
+                }
+
+                this.closeModal();
+                await this.loadEvents();
+                if (this.calendar) {
+                    this.calendar.refetchEvents();
+                }
+            } catch (error) {
+                console.error('Error saving event:', error);
+                showToast(error.response?.data?.detail || 'Failed to save event', 'error');
+            } finally {
+                this.saving = false;
+            }
+        }
+    }
+}
+</script>
+{% endblock %}

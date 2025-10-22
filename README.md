@@ -1,131 +1,193 @@
-# Portfolio Analyzer
+# GrowFolio CMS
 
-A comprehensive portfolio analysis tool with Zerodha Kite integration, built with FastAPI and vanilla JavaScript.
+A comprehensive customer management system for investment consultancy firms, built with FastAPI and vanilla JavaScript.
 
 ## Features
 
-- **Portfolio Tracking**: Real-time portfolio monitoring with automatic Zerodha Kite sync
-- **Performance Metrics**: XIRR, CAGR, Win Rate, Max Drawdown calculations
-- **Trading Journal**: Document trades with entry/exit reasons, strategies, and learnings
-- **Time-based Filters**: View performance for 1M, 3M, 6M, 1Y, or all-time periods
-- **Daily Updates**: Automatic portfolio sync and performance calculations
-- **Professional UI**: Clean, minimalist dark-themed interface
-- **Free Deployment**: Configured for Railway, Render, or Heroku
+- **Customer Management**: Complete customer profiles with KYC, financial details, and documents
+- **Investment Tracking**: Manual entry for mutual funds, stocks, bonds, insurance, and more
+- **Calendar & Events**: Global calendar with Google Meet integration for seminars, 1-on-1s, and group calls
+- **Communication Hub**: Track calls, emails, meetings, and internal notes with activity timeline
+- **Commission & Billing**: Commission tracking, invoice generation, and payment management
+- **User Management**: Role-based access control (Admin/Employee) with invite system
+- **Notifications**: In-app and email notifications for events, birthdays, and follow-ups
+- **Reports & Analytics**: Customer acquisition, revenue reports, and Excel/PDF export
+- **Professional UI**: Clean, responsive interface optimized for consultancy workflows
+- **Railway Ready**: Configured for easy deployment on Railway
 
 ## Tech Stack
 
-- **Backend**: FastAPI, SQLAlchemy, SQLite
+- **Backend**: FastAPI, SQLAlchemy, PostgreSQL
 - **Frontend**: HTML5, CSS3, Vanilla JavaScript
 - **Charts**: Chart.js
-- **Authentication**: JWT
-- **Integration**: Zerodha Kite Connect API
-- **Deployment**: Railway/Render/Heroku ready
+- **Authentication**: JWT with RBAC (Admin/Employee)
+- **Integrations**: Google Meet, Gmail SMTP
+- **Storage**: Local (S3-ready architecture)
+- **Deployment**: Railway ready
 
-## Installation
+## Quick Start
 
-1. Clone the repository:
+### Prerequisites
+- Python 3.9+
+- PostgreSQL 13+
+- Google Workspace account
+
+### Installation
+
+1. **Clone and setup**:
 ```bash
 git clone <your-repo-url>
-cd portfolio-analyzer
-```
-
-2. Create a virtual environment:
-```bash
+cd pf-analyzer
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-3. Install dependencies:
-```bash
 pip install -r requirements.txt
 ```
 
-4. Set up environment variables:
+2. **Create database**:
 ```bash
-cp .env.example .env
-# Edit .env with your configuration
+createdb growfolio
 ```
 
-5. Run the application:
+3. **Configure environment**:
+```bash
+cp .env.example .env
+# Edit .env with your credentials (see SETUP.md for details)
+```
+
+4. **Initialize database**:
+```bash
+python reset_database.py --yes
+```
+
+5. **Run the application**:
 ```bash
 uvicorn main:app --reload
 ```
 
-Visit `http://localhost:8000` to access the application.
+Visit `http://localhost:8000`
 
-## Zerodha Kite Setup
+**Default Admin Login**:
+- Email: `admin@grow-folio.in`
+- Password: `Admin@123` (change after first login)
 
-1. Register for Kite Connect API at https://developers.kite.trade/
-2. Get your API Key and Secret
-3. Add them to your `.env` file
-4. Use the Settings page to connect your Zerodha account
+## Configuration
 
-## Deployment
+### Google API Setup
 
-### Railway
+**For Google Meet & Calendar**:
+1. Create project in Google Cloud Console
+2. Enable Google Calendar API
+3. Create OAuth 2.0 credentials
+4. Add to `.env`: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
 
-1. Connect your GitHub repository to Railway
-2. Railway will auto-detect the configuration
-3. Add environment variables in Railway dashboard
-4. Deploy!
+**For Email (SMTP)**:
+1. Enable 2FA on help@grow-folio.in
+2. Generate App Password at https://myaccount.google.com/apppasswords
+3. Add to `.env`: `SMTP_PASSWORD`
 
-### Render
+See [SETUP.md](SETUP.md) for detailed configuration guide.
 
-1. Connect your GitHub repository to Render
-2. Choose "Web Service"
-3. Render will use `render.yaml` configuration
-4. Add environment variables
-5. Deploy!
+## Deployment (Railway)
 
-### Heroku (Alternative)
+1. **Connect Repository**:
+   - Go to https://railway.app/
+   - Connect your GitHub repository
+   - Railway auto-detects configuration
 
-1. Install Heroku CLI
-2. Run:
+2. **Configure Environment Variables**:
+   - Add all variables from `.env.example`
+   - Set `DEBUG=False` for production
+   - Railway provides `DATABASE_URL` automatically
+
+3. **Initialize Database**:
 ```bash
-heroku create your-app-name
-heroku config:set SECRET_KEY=your-secret-key
-git push heroku main
+railway link
+railway run python reset_database.py --yes
 ```
 
-## API Endpoints
+4. **Deploy**:
+```bash
+git push origin main
+```
 
-- `GET /`: Dashboard
-- `GET /journal`: Trading Journal
-- `GET /settings`: Settings
+See [RAILWAY_SETUP.md](RAILWAY_SETUP.md) for details.
 
-### REST API
-- `POST /api/register`: Register new user
-- `POST /api/login`: User login
-- `GET /api/trades`: Get all trades
-- `POST /api/trades`: Add new trade
-- `GET /api/journal`: Get journal entries
-- `POST /api/journal`: Add journal entry
-- `GET /api/holdings`: Get current holdings
-- `GET /api/performance`: Get performance metrics
-- `GET /api/kite/sync`: Sync with Zerodha
+## Core Modules
+
+### 1. Customer Management
+- Complete customer profiles with KYC
+- Search and advanced filters
+- Document management
+- Family members and nominees
+
+### 2. Calendar & Events
+- Global calendar view (FullCalendar.js)
+- Event types: Seminar, 1-on-1, Group Call, Follow-up, Review
+- Google Meet integration
+- Email notifications
+
+### 3. Investment Tracking
+- Manual entry for all investment types
+- Portfolio summary per customer
+- Returns calculation
+
+### 4. Communication Hub
+- Communication logs (calls, emails, meetings)
+- Internal notes (public/private)
+- Activity timeline
+
+### 5. Commission & Billing
+- Commission tracking per investment
+- Invoice generation
+- Payment management
+
+### 6. User Management
+- RBAC (Admin/Employee)
+- Invite-based registration
+- Temporary password flow
 
 ## Database Schema
 
-- **Users**: User accounts with Kite credentials
-- **Trades**: Buy/sell transactions
-- **JournalEntries**: Trade documentation and learnings
-- **Holdings**: Current portfolio positions
-- **PerformanceSnapshots**: Daily performance metrics
+- **users**: Admin and employee accounts with RBAC
+- **customers**: Complete customer profiles
+- **investments**: Investment tracking
+- **events**: Calendar events with Google Meet links
+- **communications**: Communication logs
+- **notes**: Internal notes
+- **commissions**: Commission tracking
+- **invoices**: Billing and payments
+- **documents**: Document storage
+- **notifications**: User notifications
+- **activity_logs**: Activity timeline
+- **family_members**: Customer family info
+- **nominees**: Investment nominees
+- **event_participants**: Event-customer mapping
 
 ## Security
 
-- Passwords are hashed using bcrypt
-- JWT tokens for authentication
-- Environment variables for sensitive data
-- HTTPS recommended for production
+- Passwords hashed with bcrypt
+- JWT authentication with RBAC
+- Role-based access control (Admin/Employee)
+- Environment variables for all secrets
+- Invite-based user creation
+- Temporary password with forced change
+- HTTPS required for production
 
-## Contributing
+## Documentation
 
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+- [SETUP.md](SETUP.md) - Complete setup guide
+- [RAILWAY_SETUP.md](RAILWAY_SETUP.md) - Railway deployment guide
+- [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) - General deployment guide
+
+## Development Status
+
+**Phase 1**: Foundation (Current)
+- ✅ Database schema
+- ✅ Configuration
+- ⏳ Authentication APIs
+- ⏳ Frontend layout
+
+**Next Phases**: Customer Management → Calendar & Events → Advanced Features → Reports
 
 ## License
 
@@ -133,4 +195,4 @@ MIT License
 
 ## Support
 
-For issues or questions, please create an issue on GitHub.
+For questions or issues, please create an issue on GitHub.

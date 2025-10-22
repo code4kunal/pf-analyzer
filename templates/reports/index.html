@@ -1,0 +1,638 @@
+{% extends "components/base.html" %}
+
+{% block title %}Reports & Analytics - GrowFolio CMS{% endblock %}
+{% block page_title %}Reports & Analytics{% endblock %}
+
+{% block content %}
+<div x-data="reportsApp()" x-init="loadDashboardData()">
+    <!-- Page Header -->
+    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 gap-4">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">Reports & Analytics</h1>
+            <p class="text-gray-600 mt-1">Comprehensive business insights</p>
+        </div>
+        <button
+            @click="exportCurrentReport()"
+            class="px-4 py-2 bg-primary hover:bg-blue-900 text-white rounded-lg transition text-sm"
+        >
+            <i class="fas fa-download mr-2"></i> Export Report
+        </button>
+    </div>
+
+    <!-- Report Type Selector -->
+    <div class="bg-white rounded-lg shadow mb-4 p-4">
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <button
+                @click="selectedReport = 'overview'"
+                class="p-3 border-2 rounded-lg text-left transition"
+                :class="selectedReport === 'overview' ? 'border-primary bg-blue-50' : 'border-gray-200 hover:border-gray-300'"
+            >
+                <i class="fas fa-chart-pie text-lg mb-1" :class="selectedReport === 'overview' ? 'text-primary' : 'text-gray-400'"></i>
+                <h3 class="font-semibold text-gray-900 text-sm">Overview</h3>
+                <p class="text-xs text-gray-600 mt-0.5">Business metrics</p>
+            </button>
+
+            <button
+                @click="selectedReport = 'customers'"
+                class="p-3 border-2 rounded-lg text-left transition"
+                :class="selectedReport === 'customers' ? 'border-primary bg-blue-50' : 'border-gray-200 hover:border-gray-300'"
+            >
+                <i class="fas fa-users text-lg mb-1" :class="selectedReport === 'customers' ? 'text-primary' : 'text-gray-400'"></i>
+                <h3 class="font-semibold text-gray-900 text-sm">Customers</h3>
+                <p class="text-xs text-gray-600 mt-0.5">Acquisition</p>
+            </button>
+
+            <button
+                @click="selectedReport = 'portfolio'"
+                class="p-3 border-2 rounded-lg text-left transition"
+                :class="selectedReport === 'portfolio' ? 'border-primary bg-blue-50' : 'border-gray-200 hover:border-gray-300'"
+            >
+                <i class="fas fa-briefcase text-lg mb-1" :class="selectedReport === 'portfolio' ? 'text-primary' : 'text-gray-400'"></i>
+                <h3 class="font-semibold text-gray-900 text-sm">Portfolio</h3>
+                <p class="text-xs text-gray-600 mt-0.5">Performance</p>
+            </button>
+
+            <button
+                @click="selectedReport = 'revenue'"
+                class="p-3 border-2 rounded-lg text-left transition"
+                :class="selectedReport === 'revenue' ? 'border-primary bg-blue-50' : 'border-gray-200 hover:border-gray-300'"
+            >
+                <i class="fas fa-dollar-sign text-lg mb-1" :class="selectedReport === 'revenue' ? 'text-primary' : 'text-gray-400'"></i>
+                <h3 class="font-semibold text-gray-900 text-sm">Revenue</h3>
+                <p class="text-xs text-gray-600 mt-0.5">Commissions</p>
+            </button>
+        </div>
+    </div>
+
+    <!-- Date Range Filter -->
+    <div class="bg-white rounded-lg shadow mb-4 p-4">
+        <div class="flex flex-wrap items-center gap-2">
+            <span class="text-xs font-medium text-gray-700 mr-2">Date Range:</span>
+            <button @click="setDateRange('today')" class="px-3 py-1.5 text-xs rounded-lg transition" :class="dateRange === 'today' ? 'bg-primary text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'">Today</button>
+            <button @click="setDateRange('week')" class="px-3 py-1.5 text-xs rounded-lg transition" :class="dateRange === 'week' ? 'bg-primary text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'">Week</button>
+            <button @click="setDateRange('month')" class="px-3 py-1.5 text-xs rounded-lg transition" :class="dateRange === 'month' ? 'bg-primary text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'">Month</button>
+            <button @click="setDateRange('year')" class="px-3 py-1.5 text-xs rounded-lg transition" :class="dateRange === 'year' ? 'bg-primary text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'">Year</button>
+            <button @click="setDateRange('custom')" class="px-3 py-1.5 text-xs rounded-lg transition" :class="dateRange === 'custom' ? 'bg-primary text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'">Custom</button>
+        </div>
+
+        <!-- Custom Date Range -->
+        <div x-show="dateRange === 'custom'" class="mt-3 flex gap-3">
+            <div>
+                <input type="date" x-model="customStartDate" @change="loadDashboardData()" class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent">
+            </div>
+            <div>
+                <input type="date" x-model="customEndDate" @change="loadDashboardData()" class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent">
+            </div>
+        </div>
+    </div>
+
+    <!-- Business Overview Report -->
+    <div x-show="selectedReport === 'overview'" style="display: none;">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+            <div class="bg-white rounded-lg shadow p-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex-1">
+                        <p class="text-xs font-medium text-gray-600">Total Customers</p>
+                        <h3 class="text-2xl font-bold text-gray-900 mt-1" x-text="stats?.customers?.total || 0"></h3>
+                    </div>
+                    <div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <i class="fas fa-users text-blue-600 text-lg"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow p-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex-1">
+                        <p class="text-xs font-medium text-gray-600">Total Invested</p>
+                        <h3 class="text-2xl font-bold text-gray-900 mt-1" x-text="formatCurrency(stats?.investments?.total_invested || 0)"></h3>
+                    </div>
+                    <div class="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <i class="fas fa-chart-line text-green-600 text-lg"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow p-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex-1">
+                        <p class="text-xs font-medium text-gray-600">Total Revenue</p>
+                        <h3 class="text-2xl font-bold text-gray-900 mt-1" x-text="formatCurrency(stats?.invoices?.total_revenue || 0)"></h3>
+                    </div>
+                    <div class="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <i class="fas fa-dollar-sign text-purple-600 text-lg"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow p-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex-1">
+                        <p class="text-xs font-medium text-gray-600">Total Returns</p>
+                        <h3 class="text-2xl font-bold text-green-600 mt-1" x-text="formatCurrency(stats?.investments?.total_returns || 0)"></h3>
+                    </div>
+                    <div class="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <i class="fas fa-trending-up text-green-600 text-lg"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+            <div class="bg-white rounded-lg shadow p-4">
+                <h3 class="text-base font-semibold text-gray-900 mb-3">Investment Distribution</h3>
+                <div style="height: 200px;">
+                    <canvas id="investmentDistributionChart"></canvas>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow p-4">
+                <h3 class="text-base font-semibold text-gray-900 mb-3">Revenue vs Commissions</h3>
+                <div style="height: 200px;">
+                    <canvas id="revenueCommissionsChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-lg shadow">
+            <div class="p-4 border-b border-gray-200">
+                <h3 class="text-base font-semibold text-gray-900">Recent Activities</h3>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Activity</th>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-200">
+                        <template x-for="activity in recentActivities.slice(0, 5)" :key="activity.id">
+                            <tr class="hover:bg-gray-50">
+                                <td class="px-4 py-2 whitespace-nowrap text-gray-900" x-text="formatDate(activity.date)"></td>
+                                <td class="px-4 py-2 whitespace-nowrap text-gray-900" x-text="activity.type"></td>
+                                <td class="px-4 py-2 whitespace-nowrap text-gray-900" x-text="activity.customer"></td>
+                                <td class="px-4 py-2 whitespace-nowrap font-medium text-gray-900" x-text="formatCurrency(activity.amount || 0)"></td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Customer Analysis Report -->
+    <div x-show="selectedReport === 'customers'" style="display: none;">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <div class="bg-white rounded-lg shadow p-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex-1">
+                        <p class="text-xs font-medium text-gray-600">Active</p>
+                        <h3 class="text-2xl font-bold text-green-600 mt-1" x-text="stats?.customers?.active || 0"></h3>
+                    </div>
+                    <div class="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <i class="fas fa-user-check text-green-600 text-lg"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow p-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex-1">
+                        <p class="text-xs font-medium text-gray-600">Prospective</p>
+                        <h3 class="text-2xl font-bold text-orange-600 mt-1" x-text="stats?.customers?.prospective || 0"></h3>
+                    </div>
+                    <div class="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <i class="fas fa-user-clock text-orange-600 text-lg"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow p-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex-1">
+                        <p class="text-xs font-medium text-gray-600">Inactive</p>
+                        <h3 class="text-2xl font-bold text-gray-600 mt-1" x-text="stats?.customers?.inactive || 0"></h3>
+                    </div>
+                    <div class="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <i class="fas fa-user-times text-gray-600 text-lg"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div class="bg-white rounded-lg shadow p-4">
+                <h3 class="text-base font-semibold text-gray-900 mb-3">Status Distribution</h3>
+                <div style="height: 200px;">
+                    <canvas id="customerStatusChart"></canvas>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow p-4">
+                <h3 class="text-base font-semibold text-gray-900 mb-3">Risk Profile</h3>
+                <div style="height: 200px;">
+                    <canvas id="riskProfileChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Portfolio Performance Report -->
+    <div x-show="selectedReport === 'portfolio'" style="display: none;">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <div class="bg-white rounded-lg shadow p-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex-1">
+                        <p class="text-xs font-medium text-gray-600">Total Invested</p>
+                        <h3 class="text-2xl font-bold text-gray-900 mt-1" x-text="formatCurrency(stats?.investments?.total_invested || 0)"></h3>
+                    </div>
+                    <div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <i class="fas fa-wallet text-blue-600 text-lg"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow p-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex-1">
+                        <p class="text-xs font-medium text-gray-600">Current Value</p>
+                        <h3 class="text-2xl font-bold text-gray-900 mt-1" x-text="formatCurrency(stats?.investments?.current_value || 0)"></h3>
+                    </div>
+                    <div class="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <i class="fas fa-chart-bar text-purple-600 text-lg"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow p-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex-1">
+                        <p class="text-xs font-medium text-gray-600">Total Returns</p>
+                        <h3 class="text-2xl font-bold text-green-600 mt-1" x-text="formatCurrency(stats?.investments?.total_returns || 0)"></h3>
+                        <p class="text-xs text-gray-600 mt-0.5">
+                            <span x-text="((stats?.investments?.total_returns / stats?.investments?.total_invested * 100) || 0).toFixed(2)"></span>% ROI
+                        </p>
+                    </div>
+                    <div class="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <i class="fas fa-arrow-trend-up text-green-600 text-lg"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-lg shadow p-4">
+            <h3 class="text-base font-semibold text-gray-900 mb-3">Portfolio Performance</h3>
+            <div style="height: 250px;">
+                <canvas id="portfolioPerformanceChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Revenue Report -->
+    <div x-show="selectedReport === 'revenue'" style="display: none;">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+            <div class="bg-white rounded-lg shadow p-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex-1">
+                        <p class="text-xs font-medium text-gray-600">Total Revenue</p>
+                        <h3 class="text-2xl font-bold text-gray-900 mt-1" x-text="formatCurrency(stats?.invoices?.total_revenue || 0)"></h3>
+                    </div>
+                    <div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <i class="fas fa-file-invoice-dollar text-blue-600 text-lg"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow p-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex-1">
+                        <p class="text-xs font-medium text-gray-600">Paid Revenue</p>
+                        <h3 class="text-2xl font-bold text-green-600 mt-1" x-text="formatCurrency(stats?.invoices?.paid_revenue || 0)"></h3>
+                    </div>
+                    <div class="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <i class="fas fa-check-circle text-green-600 text-lg"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow p-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex-1">
+                        <p class="text-xs font-medium text-gray-600">Commissions</p>
+                        <h3 class="text-2xl font-bold text-gray-900 mt-1" x-text="formatCurrency(stats?.commissions?.total || 0)"></h3>
+                    </div>
+                    <div class="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <i class="fas fa-coins text-orange-600 text-lg"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow p-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex-1">
+                        <p class="text-xs font-medium text-gray-600">Paid Comm.</p>
+                        <h3 class="text-2xl font-bold text-green-600 mt-1" x-text="formatCurrency(stats?.commissions?.paid || 0)"></h3>
+                    </div>
+                    <div class="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <i class="fas fa-hand-holding-usd text-green-600 text-lg"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div class="bg-white rounded-lg shadow p-4">
+                <h3 class="text-base font-semibold text-gray-900 mb-3">Revenue Breakdown</h3>
+                <div style="height: 200px;">
+                    <canvas id="revenueBreakdownChart"></canvas>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow p-4">
+                <h3 class="text-base font-semibold text-gray-900 mb-3">Commission Status</h3>
+                <div style="height: 200px;">
+                    <canvas id="commissionStatusChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading State -->
+    <div x-show="loading" class="text-center py-12 bg-white rounded-lg shadow">
+        <div class="spinner mx-auto mb-4"></div>
+        <p class="text-gray-600">Loading report data...</p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function reportsApp() {
+    return {
+        selectedReport: 'overview',
+        dateRange: 'month',
+        customStartDate: '',
+        customEndDate: '',
+        loading: false,
+        stats: null,
+        recentActivities: [],
+        charts: {},
+
+        async loadDashboardData() {
+            this.loading = true;
+            try {
+                const response = await axios.get(`${API_URL}/dashboard/stats`);
+                this.stats = response.data;
+                this.recentActivities = [
+                    { id: 1, date: new Date().toISOString(), type: 'New Investment', customer: 'John Doe', amount: 50000 },
+                    { id: 2, date: new Date().toISOString(), type: 'Invoice Paid', customer: 'Jane Smith', amount: 2500 },
+                    { id: 3, date: new Date().toISOString(), type: 'Commission', customer: 'Mike Johnson', amount: 1000 }
+                ];
+
+                this.$nextTick(() => this.renderCharts());
+            } catch (error) {
+                console.error('Error loading dashboard data:', error);
+                showToast('Failed to load report data', 'error');
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        setDateRange(range) {
+            this.dateRange = range;
+            if (range !== 'custom') {
+                this.loadDashboardData();
+            }
+        },
+
+        renderCharts() {
+            Object.values(this.charts).forEach(chart => {
+                if (chart) chart.destroy();
+            });
+
+            const chartOptions = {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: { padding: 8, font: { size: 10 } }
+                    }
+                }
+            };
+
+            // Investment Distribution Chart
+            const invDistCtx = document.getElementById('investmentDistributionChart');
+            if (invDistCtx) {
+                this.charts.investmentDist = new Chart(invDistCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Invested', 'Current Value', 'Returns'],
+                        datasets: [{
+                            data: [
+                                this.stats?.investments?.total_invested || 0,
+                                this.stats?.investments?.current_value || 0,
+                                this.stats?.investments?.total_returns || 0
+                            ],
+                            backgroundColor: ['#1F4E78', '#3B82F6', '#10B981'],
+                            borderWidth: 0
+                        }]
+                    },
+                    options: chartOptions
+                });
+            }
+
+            // Revenue vs Commissions Chart
+            const revCommCtx = document.getElementById('revenueCommissionsChart');
+            if (revCommCtx) {
+                this.charts.revComm = new Chart(revCommCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: ['Total Rev.', 'Paid Rev.', 'Comm.', 'Paid Comm.'],
+                        datasets: [{
+                            data: [
+                                this.stats?.invoices?.total_revenue || 0,
+                                this.stats?.invoices?.paid_revenue || 0,
+                                this.stats?.commissions?.total || 0,
+                                this.stats?.commissions?.paid || 0
+                            ],
+                            backgroundColor: ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6'],
+                            borderWidth: 0,
+                            barThickness: 35
+                        }]
+                    },
+                    options: {
+                        ...chartOptions,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                ticks: {
+                                    font: { size: 9 },
+                                    callback: (value) => '₹' + (value / 1000).toFixed(0) + 'K'
+                                }
+                            },
+                            x: { ticks: { font: { size: 9 } } }
+                        }
+                    }
+                });
+            }
+
+            // Customer Status Chart
+            const custStatusCtx = document.getElementById('customerStatusChart');
+            if (custStatusCtx) {
+                this.charts.custStatus = new Chart(custStatusCtx, {
+                    type: 'pie',
+                    data: {
+                        labels: ['Active', 'Prospective', 'Inactive'],
+                        datasets: [{
+                            data: [
+                                this.stats?.customers?.active || 0,
+                                this.stats?.customers?.prospective || 0,
+                                this.stats?.customers?.inactive || 0
+                            ],
+                            backgroundColor: ['#10B981', '#F59E0B', '#6B7280'],
+                            borderWidth: 0
+                        }]
+                    },
+                    options: chartOptions
+                });
+            }
+
+            // Risk Profile Chart
+            const riskProfileCtx = document.getElementById('riskProfileChart');
+            if (riskProfileCtx) {
+                this.charts.riskProfile = new Chart(riskProfileCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Conservative', 'Moderate', 'Aggressive'],
+                        datasets: [{
+                            data: [30, 50, 20],
+                            backgroundColor: ['#3B82F6', '#F59E0B', '#EF4444'],
+                            borderWidth: 0
+                        }]
+                    },
+                    options: chartOptions
+                });
+            }
+
+            // Portfolio Performance Chart
+            const portfolioCtx = document.getElementById('portfolioPerformanceChart');
+            if (portfolioCtx) {
+                this.charts.portfolio = new Chart(portfolioCtx, {
+                    type: 'line',
+                    data: {
+                        labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+                        datasets: [{
+                            label: 'Portfolio Value',
+                            data: [100000, 120000, 115000, 135000, 150000, 145000, 160000, 170000, 165000, 180000, 190000, 200000],
+                            borderColor: '#1F4E78',
+                            backgroundColor: 'rgba(31, 78, 120, 0.1)',
+                            tension: 0.4,
+                            fill: true,
+                            borderWidth: 2
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            y: { beginAtZero: false, ticks: { font: { size: 9 } } },
+                            x: { ticks: { font: { size: 9 } } }
+                        }
+                    }
+                });
+            }
+
+            // Revenue Breakdown Chart
+            const revBreakdownCtx = document.getElementById('revenueBreakdownChart');
+            if (revBreakdownCtx) {
+                this.charts.revBreakdown = new Chart(revBreakdownCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: ['Total', 'Paid', 'Outstanding'],
+                        datasets: [{
+                            data: [
+                                this.stats?.invoices?.total_revenue || 0,
+                                this.stats?.invoices?.paid_revenue || 0,
+                                (this.stats?.invoices?.total_revenue || 0) - (this.stats?.invoices?.paid_revenue || 0)
+                            ],
+                            backgroundColor: ['#3B82F6', '#10B981', '#F59E0B'],
+                            borderWidth: 0,
+                            barThickness: 40
+                        }]
+                    },
+                    options: {
+                        ...chartOptions,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                ticks: {
+                                    font: { size: 9 },
+                                    callback: (value) => '₹' + (value / 1000).toFixed(0) + 'K'
+                                }
+                            },
+                            x: { ticks: { font: { size: 9 } } }
+                        }
+                    }
+                });
+            }
+
+            // Commission Status Chart
+            const commStatusCtx = document.getElementById('commissionStatusChart');
+            if (commStatusCtx) {
+                this.charts.commStatus = new Chart(commStatusCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Paid', 'Pending'],
+                        datasets: [{
+                            data: [
+                                this.stats?.commissions?.paid || 0,
+                                this.stats?.commissions?.pending || 0
+                            ],
+                            backgroundColor: ['#10B981', '#F59E0B'],
+                            borderWidth: 0
+                        }]
+                    },
+                    options: chartOptions
+                });
+            }
+        },
+
+        async exportCurrentReport() {
+            showLoading();
+            try {
+                let endpoint = '';
+                switch (this.selectedReport) {
+                    case 'customers': endpoint = '/exports/customers'; break;
+                    case 'portfolio': endpoint = '/exports/investments'; break;
+                    case 'revenue': endpoint = '/exports/invoices'; break;
+                    default: endpoint = '/exports/customers';
+                }
+
+                const response = await axios.get(`${API_URL}${endpoint}`, { responseType: 'blob' });
+                const url = window.URL.createObjectURL(new Blob([response.data]));
+                const link = document.createElement('a');
+                link.href = url;
+                link.setAttribute('download', `${this.selectedReport}_report_${new Date().toISOString().split('T')[0]}.xlsx`);
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+
+                showToast('Report exported successfully', 'success');
+            } catch (error) {
+                console.error('Error exporting report:', error);
+                showToast('Failed to export report', 'error');
+            } finally {
+                hideLoading();
+            }
+        }
+    }
+}
+</script>
+{% endblock %}

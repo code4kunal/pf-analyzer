@@ -1,0 +1,400 @@
+{% extends "components/base.html" %}
+
+{% block title %}Customer Detail - GrowFolio CMS{% endblock %}
+{% block page_title %}Customer Details{% endblock %}
+
+{% block content %}
+<div x-data="customerDetailApp({{ customer_id }})" x-init="loadCustomer()">
+    <!-- Back Button -->
+    <div class="mb-4">
+        <a href="/customers" class="text-primary hover:underline inline-flex items-center">
+            <i class="fas fa-arrow-left mr-2"></i> Back to Customers
+        </a>
+    </div>
+
+    <!-- Loading State -->
+    <div x-show="loading && !customer" class="text-center py-12">
+        <div class="spinner mx-auto mb-4"></div>
+        <p class="text-gray-600">Loading customer details...</p>
+    </div>
+
+    <!-- Customer Detail Content -->
+    <div x-show="customer" style="display: none;">
+        <!-- Customer Header Card -->
+        <div class="bg-white rounded-lg shadow mb-6 p-6">
+            <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                <div class="flex items-center">
+                    <div class="w-16 h-16 rounded-full bg-primary text-white flex items-center justify-center text-2xl font-bold">
+                        <span x-text="customer?.full_name?.charAt(0).toUpperCase()"></span>
+                    </div>
+                    <div class="ml-4">
+                        <h1 class="text-2xl font-bold text-gray-900" x-text="customer?.full_name"></h1>
+                        <div class="flex items-center gap-3 mt-1">
+                            <span class="px-2 py-1 text-xs font-semibold rounded-full"
+                                  :class="{
+                                    'bg-green-100 text-green-800': customer?.status === 'ACTIVE',
+                                    'bg-gray-100 text-gray-800': customer?.status === 'INACTIVE',
+                                    'bg-blue-100 text-blue-800': customer?.status === 'PROSPECTIVE'
+                                  }"
+                                  x-text="customer?.status">
+                            </span>
+                            <span class="text-sm text-gray-600" x-text="customer?.risk_profile || 'Risk profile not set'"></span>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <a :href="`/customers/${customer?.id}/edit`" class="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+                        <i class="fas fa-edit mr-2"></i> Edit
+                    </a>
+                </div>
+            </div>
+
+            <!-- Quick Stats -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6">
+                <div class="text-center p-4 bg-gray-50 rounded-lg">
+                    <p class="text-sm text-gray-600">Portfolio Value</p>
+                    <p class="text-2xl font-bold text-gray-900" x-text="formatCurrency(customer?.current_portfolio_value || 0)"></p>
+                </div>
+                <div class="text-center p-4 bg-gray-50 rounded-lg">
+                    <p class="text-sm text-gray-600">Investments</p>
+                    <p class="text-2xl font-bold text-gray-900" x-text="investments.length"></p>
+                </div>
+                <div class="text-center p-4 bg-gray-50 rounded-lg">
+                    <p class="text-sm text-gray-600">Documents</p>
+                    <p class="text-2xl font-bold text-gray-900" x-text="documents.length"></p>
+                </div>
+                <div class="text-center p-4 bg-gray-50 rounded-lg">
+                    <p class="text-sm text-gray-600">Member Since</p>
+                    <p class="text-sm font-medium text-gray-900" x-text="customer?.created_at ? formatDate(customer.created_at) : 'N/A'"></p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="bg-white rounded-lg shadow">
+            <!-- Tab Headers -->
+            <div class="border-b border-gray-200">
+                <nav class="flex -mb-px overflow-x-auto">
+                    <button
+                        @click="activeTab = 'overview'"
+                        class="px-6 py-4 text-sm font-medium border-b-2 transition whitespace-nowrap"
+                        :class="activeTab === 'overview' ? 'border-primary text-primary' : 'border-transparent text-gray-600 hover:text-gray-900'"
+                    >
+                        <i class="fas fa-info-circle mr-2"></i> Overview
+                    </button>
+                    <button
+                        @click="activeTab = 'investments'"
+                        class="px-6 py-4 text-sm font-medium border-b-2 transition whitespace-nowrap"
+                        :class="activeTab === 'investments' ? 'border-primary text-primary' : 'border-transparent text-gray-600 hover:text-gray-900'"
+                    >
+                        <i class="fas fa-chart-line mr-2"></i> Investments
+                    </button>
+                    <button
+                        @click="activeTab = 'documents'"
+                        class="px-6 py-4 text-sm font-medium border-b-2 transition whitespace-nowrap"
+                        :class="activeTab === 'documents' ? 'border-primary text-primary' : 'border-transparent text-gray-600 hover:text-gray-900'"
+                    >
+                        <i class="fas fa-folder mr-2"></i> Documents
+                    </button>
+                    <button
+                        @click="activeTab = 'notes'"
+                        class="px-6 py-4 text-sm font-medium border-b-2 transition whitespace-nowrap"
+                        :class="activeTab === 'notes' ? 'border-primary text-primary' : 'border-transparent text-gray-600 hover:text-gray-900'"
+                    >
+                        <i class="fas fa-sticky-note mr-2"></i> Notes
+                    </button>
+                    <button
+                        @click="activeTab = 'activity'"
+                        class="px-6 py-4 text-sm font-medium border-b-2 transition whitespace-nowrap"
+                        :class="activeTab === 'activity' ? 'border-primary text-primary' : 'border-transparent text-gray-600 hover:text-gray-900'"
+                    >
+                        <i class="fas fa-history mr-2"></i> Activity
+                    </button>
+                </nav>
+            </div>
+
+            <!-- Tab Content -->
+            <div class="p-6">
+                <!-- Overview Tab -->
+                <div x-show="activeTab === 'overview'">
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <!-- Contact Information -->
+                        <div>
+                            <h3 class="text-lg font-semibold text-gray-900 mb-4">Contact Information</h3>
+                            <dl class="space-y-3">
+                                <div>
+                                    <dt class="text-sm font-medium text-gray-500">Email</dt>
+                                    <dd class="mt-1 text-sm text-gray-900" x-text="customer?.email"></dd>
+                                </div>
+                                <div>
+                                    <dt class="text-sm font-medium text-gray-500">Phone</dt>
+                                    <dd class="mt-1 text-sm text-gray-900" x-text="customer?.phone"></dd>
+                                </div>
+                                <div x-show="customer?.alternate_phone">
+                                    <dt class="text-sm font-medium text-gray-500">Alternate Phone</dt>
+                                    <dd class="mt-1 text-sm text-gray-900" x-text="customer?.alternate_phone"></dd>
+                                </div>
+                                <div x-show="customer?.date_of_birth">
+                                    <dt class="text-sm font-medium text-gray-500">Date of Birth</dt>
+                                    <dd class="mt-1 text-sm text-gray-900" x-text="customer?.date_of_birth ? formatDate(customer.date_of_birth) : 'Not set'"></dd>
+                                </div>
+                            </dl>
+                        </div>
+
+                        <!-- KYC Information -->
+                        <div>
+                            <h3 class="text-lg font-semibold text-gray-900 mb-4">KYC Information</h3>
+                            <dl class="space-y-3">
+                                <div>
+                                    <dt class="text-sm font-medium text-gray-500">PAN Number</dt>
+                                    <dd class="mt-1 text-sm text-gray-900 font-mono" x-text="customer?.pan_number || 'Not provided'"></dd>
+                                </div>
+                                <div>
+                                    <dt class="text-sm font-medium text-gray-500">Aadhar Number</dt>
+                                    <dd class="mt-1 text-sm text-gray-900 font-mono" x-text="customer?.aadhar_number || 'Not provided'"></dd>
+                                </div>
+                            </dl>
+                        </div>
+
+                        <!-- Address -->
+                        <div>
+                            <h3 class="text-lg font-semibold text-gray-900 mb-4">Address</h3>
+                            <p class="text-sm text-gray-900">
+                                <template x-if="customer?.address_line1">
+                                    <span>
+                                        <span x-text="customer.address_line1"></span><br>
+                                        <span x-show="customer?.address_line2" x-text="customer.address_line2 + '\n'"></span>
+                                        <span x-text="[customer?.city, customer?.state, customer?.pincode].filter(Boolean).join(', ')"></span>
+                                    </span>
+                                </template>
+                                <template x-if="!customer?.address_line1">
+                                    <span class="text-gray-500">Address not provided</span>
+                                </template>
+                            </p>
+                        </div>
+
+                        <!-- Financial Profile -->
+                        <div>
+                            <h3 class="text-lg font-semibold text-gray-900 mb-4">Financial Profile</h3>
+                            <dl class="space-y-3">
+                                <div>
+                                    <dt class="text-sm font-medium text-gray-500">Annual Income</dt>
+                                    <dd class="mt-1 text-sm text-gray-900" x-text="customer?.annual_income ? formatCurrency(customer.annual_income) : 'Not set'"></dd>
+                                </div>
+                                <div>
+                                    <dt class="text-sm font-medium text-gray-500">Investment Goals</dt>
+                                    <dd class="mt-1 text-sm text-gray-900" x-text="customer?.investment_goals || 'Not set'"></dd>
+                                </div>
+                            </dl>
+                        </div>
+                    </div>
+
+                    <!-- Family Members & Nominees -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+                        <!-- Family Members -->
+                        <div>
+                            <h3 class="text-lg font-semibold text-gray-900 mb-4">Family Members</h3>
+                            <div x-show="customer?.family_members?.length > 0" class="space-y-2">
+                                <template x-for="member in customer.family_members" :key="member.id">
+                                    <div class="p-3 bg-gray-50 rounded-lg">
+                                        <p class="font-medium text-gray-900" x-text="member.full_name"></p>
+                                        <p class="text-sm text-gray-600" x-text="member.relation"></p>
+                                    </div>
+                                </template>
+                            </div>
+                            <p x-show="!customer?.family_members || customer.family_members.length === 0" class="text-sm text-gray-500">No family members added</p>
+                        </div>
+
+                        <!-- Nominees -->
+                        <div>
+                            <h3 class="text-lg font-semibold text-gray-900 mb-4">Nominees</h3>
+                            <div x-show="customer?.nominees?.length > 0" class="space-y-2">
+                                <template x-for="nominee in customer.nominees" :key="nominee.id">
+                                    <div class="p-3 bg-gray-50 rounded-lg">
+                                        <p class="font-medium text-gray-900" x-text="nominee.full_name"></p>
+                                        <p class="text-sm text-gray-600">
+                                            <span x-text="nominee.relation"></span> -
+                                            <span x-text="nominee.percentage_share + '%'"></span>
+                                        </p>
+                                    </div>
+                                </template>
+                            </div>
+                            <p x-show="!customer?.nominees || customer.nominees.length === 0" class="text-sm text-gray-500">No nominees added</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Investments Tab -->
+                <div x-show="activeTab === 'investments'">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-lg font-semibold text-gray-900">Investment Portfolio</h3>
+                    </div>
+                    <div x-show="investments.length > 0" class="space-y-4">
+                        <template x-for="investment in investments" :key="investment.id">
+                            <div class="p-4 border border-gray-200 rounded-lg hover:border-primary transition">
+                                <div class="flex justify-between items-start">
+                                    <div>
+                                        <h4 class="font-medium text-gray-900" x-text="investment.investment_name"></h4>
+                                        <p class="text-sm text-gray-600 mt-1" x-text="investment.investment_type"></p>
+                                        <p class="text-sm text-gray-500 mt-1">
+                                            Invested: <span x-text="formatCurrency(investment.invested_amount)"></span>
+                                        </p>
+                                    </div>
+                                    <div class="text-right">
+                                        <p class="text-lg font-semibold text-gray-900" x-text="formatCurrency(investment.current_value || investment.invested_amount)"></p>
+                                        <p class="text-sm"
+                                           :class="(investment.current_value || investment.invested_amount) >= investment.invested_amount ? 'text-green-600' : 'text-red-600'">
+                                            <span x-text="formatPercentage(((investment.current_value || investment.invested_amount) - investment.invested_amount) / investment.invested_amount * 100)"></span>
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                    <p x-show="investments.length === 0" class="text-center text-gray-500 py-8">No investments found</p>
+                </div>
+
+                <!-- Documents Tab -->
+                <div x-show="activeTab === 'documents'">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-lg font-semibold text-gray-900">Documents</h3>
+                    </div>
+                    <div x-show="documents.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <template x-for="doc in documents" :key="doc.id">
+                            <div class="p-4 border border-gray-200 rounded-lg hover:border-primary transition">
+                                <div class="flex items-center mb-2">
+                                    <i class="fas fa-file-alt text-2xl text-blue-600 mr-3"></i>
+                                    <div class="flex-1 min-w-0">
+                                        <p class="font-medium text-gray-900 truncate" x-text="doc.document_name"></p>
+                                        <p class="text-xs text-gray-500" x-text="doc.document_category"></p>
+                                    </div>
+                                </div>
+                                <div class="flex gap-2 mt-3">
+                                    <a :href="`${API_URL}/documents/${doc.id}/download`" target="_blank"
+                                       class="flex-1 text-center px-3 py-1 text-sm bg-primary text-white rounded hover:bg-blue-900">
+                                        <i class="fas fa-download mr-1"></i> Download
+                                    </a>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                    <p x-show="documents.length === 0" class="text-center text-gray-500 py-8">No documents uploaded</p>
+                </div>
+
+                <!-- Notes Tab -->
+                <div x-show="activeTab === 'notes'">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-lg font-semibold text-gray-900">Notes</h3>
+                    </div>
+                    <div x-show="notes.length > 0" class="space-y-4">
+                        <template x-for="note in notes" :key="note.id">
+                            <div class="p-4 bg-gray-50 rounded-lg">
+                                <p class="text-gray-900" x-text="note.note_text"></p>
+                                <p class="text-xs text-gray-500 mt-2" x-text="formatDateTime(note.created_at)"></p>
+                            </div>
+                        </template>
+                    </div>
+                    <p x-show="notes.length === 0" class="text-center text-gray-500 py-8">No notes added</p>
+                </div>
+
+                <!-- Activity Tab -->
+                <div x-show="activeTab === 'activity'">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4">Activity Timeline</h3>
+                    <div x-show="activities.length > 0" class="space-y-4">
+                        <template x-for="activity in activities" :key="activity.id">
+                            <div class="flex items-start">
+                                <div class="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                                    <i class="fas fa-circle text-blue-600 text-xs"></i>
+                                </div>
+                                <div class="ml-3 flex-1">
+                                    <p class="text-sm text-gray-900" x-text="activity.description"></p>
+                                    <p class="text-xs text-gray-500 mt-1" x-text="formatDateTime(activity.created_at)"></p>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                    <p x-show="activities.length === 0" class="text-center text-gray-500 py-8">No activity recorded</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function customerDetailApp(customerId) {
+    return {
+        customerId: customerId,
+        customer: null,
+        investments: [],
+        documents: [],
+        notes: [],
+        activities: [],
+        loading: false,
+        activeTab: 'overview',
+
+        async loadCustomer() {
+            this.loading = true;
+            try {
+                // Load customer details
+                const customerRes = await axios.get(`${API_URL}/customers/${this.customerId}`);
+                this.customer = customerRes.data;
+
+                // Load related data in parallel
+                await Promise.all([
+                    this.loadInvestments(),
+                    this.loadDocuments(),
+                    this.loadNotes(),
+                    this.loadActivities()
+                ]);
+            } catch (error) {
+                console.error('Error loading customer:', error);
+                showToast('Failed to load customer details', 'error');
+                if (error.response?.status === 404) {
+                    setTimeout(() => window.location.href = '/customers', 2000);
+                }
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        async loadInvestments() {
+            try {
+                const response = await axios.get(`${API_URL}/customers/${this.customerId}/investments`);
+                this.investments = response.data || [];
+            } catch (error) {
+                console.error('Error loading investments:', error);
+            }
+        },
+
+        async loadDocuments() {
+            try {
+                const response = await axios.get(`${API_URL}/customers/${this.customerId}/documents`);
+                this.documents = response.data || [];
+            } catch (error) {
+                console.error('Error loading documents:', error);
+            }
+        },
+
+        async loadNotes() {
+            try {
+                const response = await axios.get(`${API_URL}/customers/${this.customerId}/notes`);
+                this.notes = response.data || [];
+            } catch (error) {
+                console.error('Error loading notes:', error);
+            }
+        },
+
+        async loadActivities() {
+            try {
+                const response = await axios.get(`${API_URL}/customers/${this.customerId}/activities`);
+                this.activities = response.data || [];
+            } catch (error) {
+                console.error('Error loading activities:', error);
+            }
+        }
+    }
+}
+</script>
+{% endblock %}

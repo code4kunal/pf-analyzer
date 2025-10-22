@@ -1,0 +1,324 @@
+{% extends "components/base.html" %}
+
+{% block title %}Dashboard - GrowFolio CMS{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}
+<div x-data="dashboardApp()" x-init="loadDashboard()">
+    <!-- Page Header -->
+    <div class="flex items-center justify-between mb-6">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">Dashboard</h1>
+            <p class="text-gray-600 mt-1">Welcome back! Here's your business overview.</p>
+        </div>
+        <button
+            @click="loadDashboard()"
+            class="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition"
+        >
+            <i class="fas fa-sync-alt mr-2" :class="{ 'fa-spin': loading }"></i>
+            Refresh
+        </button>
+    </div>
+
+    <!-- Loading State -->
+    <div x-show="loading && !stats" class="text-center py-12">
+        <div class="spinner mx-auto mb-4"></div>
+        <p class="text-gray-600">Loading dashboard...</p>
+    </div>
+
+    <!-- Dashboard Content -->
+    <div x-show="!loading || stats" style="display: none;">
+        <!-- KPI Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <!-- Total Customers -->
+            <div class="bg-white rounded-lg shadow p-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex-1">
+                        <p class="text-xs font-medium text-gray-600">Total Customers</p>
+                        <h3 class="text-2xl font-bold text-gray-900 mt-1" x-text="stats?.customers?.total || 0"></h3>
+                        <div class="flex items-center mt-1 text-xs">
+                            <span class="text-green-600 font-medium">
+                                <span x-text="stats?.customers?.active || 0"></span> Active
+                            </span>
+                            <span class="text-gray-400 mx-1">|</span>
+                            <span class="text-gray-600">
+                                <span x-text="stats?.customers?.prospective || 0"></span> Prosp.
+                            </span>
+                        </div>
+                    </div>
+                    <div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <i class="fas fa-users text-blue-600 text-lg"></i>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Total Portfolio Value -->
+            <div class="bg-white rounded-lg shadow p-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex-1">
+                        <p class="text-xs font-medium text-gray-600">Portfolio Value</p>
+                        <h3 class="text-2xl font-bold text-gray-900 mt-1" x-text="formatCurrency(stats?.investments?.total_current_value || 0)"></h3>
+                        <div class="flex items-center mt-1 text-xs">
+                            <span :class="stats?.investments?.return_percentage >= 0 ? 'text-green-600' : 'text-red-600'" class="font-medium">
+                                <i :class="stats?.investments?.return_percentage >= 0 ? 'fas fa-arrow-up' : 'fas fa-arrow-down'" class="mr-1"></i>
+                                <span x-text="formatPercentage(stats?.investments?.return_percentage || 0)"></span>
+                            </span>
+                        </div>
+                    </div>
+                    <div class="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <i class="fas fa-chart-line text-green-600 text-lg"></i>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Total Commissions -->
+            <div class="bg-white rounded-lg shadow p-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex-1">
+                        <p class="text-xs font-medium text-gray-600">Commissions</p>
+                        <h3 class="text-2xl font-bold text-gray-900 mt-1" x-text="formatCurrency(stats?.commissions?.total || 0)"></h3>
+                        <div class="flex items-center mt-1 text-xs">
+                            <span class="text-green-600 font-medium">
+                                <span x-text="formatCurrency(stats?.commissions?.paid || 0)"></span> Paid
+                            </span>
+                            <span class="text-gray-400 mx-1">|</span>
+                            <span class="text-orange-600">
+                                <span x-text="formatCurrency(stats?.commissions?.pending || 0)"></span> Pend.
+                            </span>
+                        </div>
+                    </div>
+                    <div class="w-10 h-10 bg-yellow-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <i class="fas fa-coins text-yellow-600 text-lg"></i>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Total Revenue -->
+            <div class="bg-white rounded-lg shadow p-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex-1">
+                        <p class="text-xs font-medium text-gray-600">Revenue</p>
+                        <h3 class="text-2xl font-bold text-gray-900 mt-1" x-text="formatCurrency(stats?.invoices?.total_revenue || 0)"></h3>
+                        <div class="flex items-center mt-1 text-xs">
+                            <span class="text-green-600 font-medium">
+                                <span x-text="formatCurrency(stats?.invoices?.paid_revenue || 0)"></span> Paid
+                            </span>
+                        </div>
+                    </div>
+                    <div class="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <i class="fas fa-dollar-sign text-purple-600 text-lg"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Row -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+            <!-- Investment Performance Chart -->
+            <div class="bg-white rounded-lg shadow p-4">
+                <h3 class="text-base font-semibold text-gray-900 mb-3">Investment Performance</h3>
+                <div style="height: 200px;">
+                    <canvas id="investmentChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Revenue vs Commissions Chart -->
+            <div class="bg-white rounded-lg shadow p-4">
+                <h3 class="text-base font-semibold text-gray-900 mb-3">Revenue & Commissions</h3>
+                <div style="height: 200px;">
+                    <canvas id="revenueChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent Activities & Upcoming Events -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <!-- Recent Activities -->
+            <div class="bg-white rounded-lg shadow">
+                <div class="p-4 border-b border-gray-200">
+                    <h3 class="text-base font-semibold text-gray-900">Recent Activities</h3>
+                </div>
+                <div class="p-4 max-h-64 overflow-y-auto">
+                    <template x-if="stats?.recent_activities?.length > 0">
+                        <div class="space-y-3">
+                            <template x-for="(activity, index) in stats.recent_activities.slice(0, 5)" :key="activity.id">
+                                <div class="flex items-start">
+                                    <div class="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                                        <i class="fas fa-circle text-blue-600 text-xs"></i>
+                                    </div>
+                                    <div class="ml-2 flex-1">
+                                        <p class="text-sm text-gray-900" x-text="activity.description"></p>
+                                        <p class="text-xs text-gray-500 mt-0.5" x-text="formatDateTime(activity.created_at)"></p>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+                    <template x-if="!stats?.recent_activities || stats.recent_activities.length === 0">
+                        <p class="text-center text-gray-500 py-6 text-sm">No recent activities</p>
+                    </template>
+                </div>
+            </div>
+
+            <!-- Upcoming Events -->
+            <div class="bg-white rounded-lg shadow">
+                <div class="p-4 border-b border-gray-200 flex items-center justify-between">
+                    <h3 class="text-base font-semibold text-gray-900">Upcoming Events</h3>
+                    <a href="/calendar" class="text-xs text-primary hover:underline">View All</a>
+                </div>
+                <div class="p-4 max-h-64 overflow-y-auto">
+                    <template x-if="stats?.upcoming_events?.length > 0">
+                        <div class="space-y-3">
+                            <template x-for="(event, index) in stats.upcoming_events.slice(0, 5)" :key="event.id">
+                                <div class="flex items-start p-2 bg-gray-50 rounded-lg hover:bg-gray-100 transition cursor-pointer">
+                                    <div class="w-10 h-10 rounded-lg flex flex-col items-center justify-center flex-shrink-0"
+                                         :class="{
+                                            'bg-blue-100 text-blue-600': event.event_type === 'SEMINAR',
+                                            'bg-green-100 text-green-600': event.event_type === 'ONE_ON_ONE',
+                                            'bg-purple-100 text-purple-600': event.event_type === 'GROUP_CALL',
+                                            'bg-orange-100 text-orange-600': event.event_type === 'REVIEW_MEETING'
+                                         }">
+                                        <i class="fas fa-calendar-day text-xs"></i>
+                                    </div>
+                                    <div class="ml-2 flex-1 min-w-0">
+                                        <h4 class="text-sm font-medium text-gray-900 truncate" x-text="event.title"></h4>
+                                        <p class="text-xs text-gray-600 mt-0.5">
+                                            <i class="fas fa-clock mr-1"></i>
+                                            <span x-text="formatDateTime(event.start_time)"></span>
+                                        </p>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+                    <template x-if="!stats?.upcoming_events || stats.upcoming_events.length === 0">
+                        <p class="text-center text-gray-500 py-6 text-sm">No upcoming events</p>
+                    </template>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function dashboardApp() {
+    return {
+        stats: null,
+        loading: false,
+        charts: {
+            investment: null,
+            revenue: null
+        },
+
+        async loadDashboard() {
+            this.loading = true;
+            try {
+                const response = await axios.get(`${API_URL}/dashboard/stats`);
+                this.stats = response.data;
+
+                // Wait for DOM to update, then create charts
+                await this.$nextTick();
+                this.createCharts();
+            } catch (error) {
+                console.error('Error loading dashboard:', error);
+                showToast('Failed to load dashboard data', 'error');
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        createCharts() {
+            // Destroy existing charts
+            if (this.charts.investment) this.charts.investment.destroy();
+            if (this.charts.revenue) this.charts.revenue.destroy();
+
+            // Investment Performance Doughnut Chart
+            const investmentCtx = document.getElementById('investmentChart');
+            if (investmentCtx) {
+                this.charts.investment = new Chart(investmentCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Total Invested', 'Returns'],
+                        datasets: [{
+                            data: [
+                                this.stats?.investments?.total_invested || 0,
+                                this.stats?.investments?.total_returns || 0
+                            ],
+                            backgroundColor: ['#1F4E78', '#10B981'],
+                            borderWidth: 0
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: {
+                                    padding: 10,
+                                    font: { size: 11 }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
+            // Revenue & Commissions Bar Chart
+            const revenueCtx = document.getElementById('revenueChart');
+            if (revenueCtx) {
+                this.charts.revenue = new Chart(revenueCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: ['Total Revenue', 'Paid Revenue', 'Commissions', 'Paid Comm.'],
+                        datasets: [{
+                            label: 'Amount (₹)',
+                            data: [
+                                this.stats?.invoices?.total_revenue || 0,
+                                this.stats?.invoices?.paid_revenue || 0,
+                                this.stats?.commissions?.total || 0,
+                                this.stats?.commissions?.paid || 0
+                            ],
+                            backgroundColor: ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6'],
+                            borderWidth: 0,
+                            barThickness: 40
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                ticks: {
+                                    font: { size: 10 },
+                                    callback: function(value) {
+                                        return '₹' + (value / 1000).toFixed(0) + 'K';
+                                    }
+                                },
+                                grid: {
+                                    color: '#f3f4f6'
+                                }
+                            },
+                            x: {
+                                ticks: {
+                                    font: { size: 10 }
+                                },
+                                grid: {
+                                    display: false
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+    }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,407 @@
+{% extends "components/base.html" %}
+
+{% block title %}User Management{% endblock %}
+
+{% block content %}
+<div class="h-full flex flex-col" x-data="usersApp()">
+    <!-- Header -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">User Management</h1>
+            <p class="text-sm text-gray-600 mt-1">Invite and manage CMS users</p>
+        </div>
+        <div x-show="userRole === 'ADMIN'">
+            <button
+                @click="openInviteModal"
+                class="bg-primary hover:bg-blue-900 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition"
+            >
+                <i class="fas fa-user-plus"></i>
+                <span>Invite User</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Users Table -->
+    <div class="bg-white rounded-lg shadow flex-1 flex flex-col">
+        <!-- Search & Filters -->
+        <div class="p-4 border-b">
+            <div class="flex flex-col sm:flex-row gap-4">
+                <div class="flex-1">
+                    <input
+                        type="text"
+                        x-model="search"
+                        @input="loadUsers"
+                        placeholder="Search users..."
+                        class="w-full px-4 py-2 border rounded-lg"
+                    >
+                </div>
+                <div>
+                    <select
+                        x-model="roleFilter"
+                        @change="loadUsers"
+                        class="px-4 py-2 border rounded-lg"
+                    >
+                        <option value="">All Roles</option>
+                        <option value="ADMIN">Admin</option>
+                        <option value="EMPLOYEE">Employee</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Users List -->
+        <div class="flex-1 overflow-auto">
+            <table class="w-full">
+                <thead class="bg-gray-50 sticky top-0">
+                    <tr>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Name</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Email</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Role</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Status</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase">Created</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase" x-show="userRole === 'ADMIN'">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y">
+                    <template x-if="loading">
+                        <tr>
+                            <td colspan="6" class="px-4 py-8 text-center text-gray-500">
+                                <i class="fas fa-spinner fa-spin text-2xl mb-2"></i>
+                                <p>Loading users...</p>
+                            </td>
+                        </tr>
+                    </template>
+                    <template x-if="!loading && users.length === 0">
+                        <tr>
+                            <td colspan="6" class="px-4 py-8 text-center text-gray-500">
+                                <i class="fas fa-users text-4xl mb-2 text-gray-300"></i>
+                                <p>No users found</p>
+                            </td>
+                        </tr>
+                    </template>
+                    <template x-for="user in users" :key="user.id">
+                        <tr class="hover:bg-gray-50">
+                            <td class="px-4 py-3">
+                                <span class="font-medium text-gray-900" x-text="user.full_name"></span>
+                            </td>
+                            <td class="px-4 py-3 text-gray-600" x-text="user.email"></td>
+                            <td class="px-4 py-3">
+                                <span
+                                    class="px-2 py-1 text-xs rounded-full font-medium"
+                                    :class="user.role === 'ADMIN' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'"
+                                    x-text="user.role"
+                                ></span>
+                            </td>
+                            <td class="px-4 py-3">
+                                <span
+                                    class="px-2 py-1 text-xs rounded-full font-medium"
+                                    :class="user.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'"
+                                    x-text="user.is_active ? 'Active' : 'Inactive'"
+                                ></span>
+                            </td>
+                            <td class="px-4 py-3 text-sm text-gray-600" x-text="formatDate(user.created_at)"></td>
+                            <td class="px-4 py-3" x-show="userRole === 'ADMIN'">
+                                <button
+                                    @click="toggleUserStatus(user)"
+                                    class="text-gray-600 hover:text-gray-900 px-2"
+                                    :title="user.is_active ? 'Deactivate' : 'Activate'"
+                                >
+                                    <i :class="user.is_active ? 'fas fa-user-slash' : 'fas fa-user-check'"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Invite User Modal -->
+    <div
+        x-show="showInviteModal"
+        x-cloak
+        class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+        @click.self="closeInviteModal"
+    >
+        <div class="bg-white rounded-lg shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+            <div class="p-6">
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-xl font-bold text-gray-900">Invite User</h2>
+                    <button @click="closeInviteModal" class="text-gray-400 hover:text-gray-600">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+
+                <form @submit.prevent="inviteUser" class="space-y-4">
+                    <!-- Full Name -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Full Name *</label>
+                        <input
+                            type="text"
+                            x-model="inviteForm.full_name"
+                            required
+                            class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary"
+                            placeholder="John Doe"
+                        >
+                    </div>
+
+                    <!-- Email -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Email *</label>
+                        <input
+                            type="email"
+                            x-model="inviteForm.email"
+                            required
+                            class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary"
+                            placeholder="john@example.com"
+                        >
+                    </div>
+
+                    <!-- Phone -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Phone</label>
+                        <input
+                            type="tel"
+                            x-model="inviteForm.phone"
+                            class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary"
+                            placeholder="+91 1234567890"
+                        >
+                    </div>
+
+                    <!-- Role -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Role *</label>
+                        <select
+                            x-model="inviteForm.role"
+                            required
+                            class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary"
+                        >
+                            <option value="EMPLOYEE">Employee</option>
+                            <option value="ADMIN">Admin</option>
+                        </select>
+                        <p class="text-xs text-gray-500 mt-1">
+                            <i class="fas fa-info-circle"></i>
+                            Admins can invite and manage users
+                        </p>
+                    </div>
+
+                    <!-- Submit Button -->
+                    <div class="flex gap-3 pt-4">
+                        <button
+                            type="button"
+                            @click="closeInviteModal"
+                            class="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="submit"
+                            :disabled="inviteLoading"
+                            class="flex-1 bg-primary hover:bg-blue-900 text-white px-4 py-2 rounded-lg transition"
+                            :class="{ 'opacity-50 cursor-not-allowed': inviteLoading }"
+                        >
+                            <span x-show="!inviteLoading">Invite User</span>
+                            <span x-show="inviteLoading">
+                                <i class="fas fa-spinner fa-spin"></i> Inviting...
+                            </span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Credentials Modal -->
+    <div
+        x-show="showCredentialsModal"
+        x-cloak
+        class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+        @click.self="closeCredentialsModal"
+    >
+        <div class="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div class="p-6">
+                <div class="text-center mb-6">
+                    <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <i class="fas fa-check text-green-600 text-2xl"></i>
+                    </div>
+                    <h2 class="text-xl font-bold text-gray-900">User Invited Successfully!</h2>
+                    <p class="text-sm text-gray-600 mt-2">Share these credentials securely with the user</p>
+                </div>
+
+                <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-xs font-medium text-blue-800 mb-1">Email</label>
+                            <div class="flex items-center gap-2">
+                                <code class="flex-1 bg-white px-3 py-2 rounded text-sm" x-text="newUserCredentials.email"></code>
+                                <button
+                                    @click="copyToClipboard(newUserCredentials.email, 'Email')"
+                                    class="text-blue-600 hover:text-blue-800"
+                                    title="Copy"
+                                >
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-blue-800 mb-1">Temporary Password</label>
+                            <div class="flex items-center gap-2">
+                                <code class="flex-1 bg-white px-3 py-2 rounded text-sm" x-text="newUserCredentials.password"></code>
+                                <button
+                                    @click="copyToClipboard(newUserCredentials.password, 'Password')"
+                                    class="text-blue-600 hover:text-blue-800"
+                                    title="Copy"
+                                >
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <p class="text-xs text-blue-700 mt-3">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        User will be forced to change password on first login
+                    </p>
+                </div>
+
+                <button
+                    @click="closeCredentialsModal"
+                    class="w-full bg-primary hover:bg-blue-900 text-white px-4 py-2 rounded-lg transition"
+                >
+                    Got it
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function usersApp() {
+    return {
+        users: [],
+        loading: false,
+        search: '',
+        roleFilter: '',
+        showInviteModal: false,
+        showCredentialsModal: false,
+        inviteLoading: false,
+        inviteForm: {
+            full_name: '',
+            email: '',
+            phone: '',
+            role: 'EMPLOYEE'
+        },
+        newUserCredentials: {
+            email: '',
+            password: ''
+        },
+
+        async init() {
+            await this.loadUsers();
+        },
+
+        async loadUsers() {
+            this.loading = true;
+            try {
+                const token = localStorage.getItem('access_token');
+                const response = await axios.get('/api/users', {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                this.users = response.data;
+            } catch (error) {
+                console.error('Failed to load users:', error);
+                showToast('Failed to load users', 'error');
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        openInviteModal() {
+            this.inviteForm = {
+                full_name: '',
+                email: '',
+                phone: '',
+                role: 'EMPLOYEE'
+            };
+            this.showInviteModal = true;
+        },
+
+        closeInviteModal() {
+            this.showInviteModal = false;
+        },
+
+        async inviteUser() {
+            this.inviteLoading = true;
+            try {
+                const token = localStorage.getItem('access_token');
+                const response = await axios.post('/api/users/invite', this.inviteForm, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+
+                // Store credentials to show in modal
+                this.newUserCredentials = {
+                    email: response.data.user.email,
+                    password: response.data.temporary_password
+                };
+
+                // Close invite modal and show credentials modal
+                this.closeInviteModal();
+                this.showCredentialsModal = true;
+
+                // Reload users list
+                await this.loadUsers();
+
+                showToast('User invited successfully!', 'success');
+            } catch (error) {
+                console.error('Failed to invite user:', error);
+                const message = error.response?.data?.detail || 'Failed to invite user';
+                showToast(message, 'error');
+            } finally {
+                this.inviteLoading = false;
+            }
+        },
+
+        closeCredentialsModal() {
+            this.showCredentialsModal = false;
+            this.newUserCredentials = { email: '', password: '' };
+        },
+
+        async toggleUserStatus(user) {
+            try {
+                const token = localStorage.getItem('access_token');
+                await axios.put(`/api/users/${user.id}`, {
+                    is_active: !user.is_active
+                }, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+
+                user.is_active = !user.is_active;
+                showToast(`User ${user.is_active ? 'activated' : 'deactivated'} successfully`, 'success');
+            } catch (error) {
+                console.error('Failed to update user status:', error);
+                showToast('Failed to update user status', 'error');
+            }
+        },
+
+        copyToClipboard(text, label) {
+            navigator.clipboard.writeText(text).then(() => {
+                showToast(`${label} copied to clipboard!`, 'success');
+            }).catch(() => {
+                showToast('Failed to copy', 'error');
+            });
+        },
+
+        formatDate(dateString) {
+            return new Date(dateString).toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric'
+            });
+        }
+    }
+}
+</script>
+
+<style>
+[x-cloak] { display: none !important; }
+</style>
+{% endblock %}

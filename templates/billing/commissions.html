@@ -1,0 +1,263 @@
+{% extends "components/base.html" %}
+
+{% block title %}Commissions - GrowFolio CMS{% endblock %}
+{% block page_title %}Commissions{% endblock %}
+
+{% block content %}
+<div x-data="commissionsApp()" x-init="loadCommissions()">
+    <!-- Page Header -->
+    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 gap-4">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">Commission Tracking</h1>
+            <p class="text-gray-600 mt-1">Manage and track commission payments</p>
+        </div>
+        <div class="flex gap-3">
+            <button
+                @click="exportToExcel()"
+                class="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition"
+            >
+                <i class="fas fa-file-excel mr-2 text-green-600"></i> Export
+            </button>
+        </div>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+        <div class="bg-white rounded-lg shadow p-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-medium text-gray-600">Total Commissions</p>
+                    <h3 class="text-3xl font-bold text-gray-900 mt-2" x-text="formatCurrency(summary.total || 0)"></h3>
+                </div>
+                <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                    <i class="fas fa-coins text-blue-600 text-xl"></i>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-lg shadow p-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-medium text-gray-600">Paid</p>
+                    <h3 class="text-3xl font-bold text-green-600 mt-2" x-text="formatCurrency(summary.paid || 0)"></h3>
+                </div>
+                <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                    <i class="fas fa-check-circle text-green-600 text-xl"></i>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-lg shadow p-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-medium text-gray-600">Pending</p>
+                    <h3 class="text-3xl font-bold text-orange-600 mt-2" x-text="formatCurrency(summary.pending || 0)"></h3>
+                </div>
+                <div class="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
+                    <i class="fas fa-clock text-orange-600 text-xl"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="bg-white rounded-lg shadow mb-6 p-6">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <!-- Status Filter -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                <select
+                    x-model="filters.is_paid"
+                    @change="loadCommissions()"
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                >
+                    <option value="">All Status</option>
+                    <option value="false">Pending</option>
+                    <option value="true">Paid</option>
+                </select>
+            </div>
+
+            <!-- Date Range -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">From Date</label>
+                <input
+                    type="date"
+                    x-model="filters.start_date"
+                    @change="loadCommissions()"
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                >
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">To Date</label>
+                <input
+                    type="date"
+                    x-model="filters.end_date"
+                    @change="loadCommissions()"
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                >
+            </div>
+        </div>
+    </div>
+
+    <!-- Commissions Table -->
+    <div class="bg-white rounded-lg shadow overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Customer
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Type
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Amount
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Earned Date
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Status
+                        </th>
+                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Actions
+                        </th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">
+                    <template x-for="commission in commissions" :key="commission.id">
+                        <tr class="hover:bg-gray-50 transition">
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <div class="text-sm font-medium text-gray-900" x-text="commission.customer_name || 'Unknown'"></div>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <div class="text-sm text-gray-900" x-text="commission.commission_type"></div>
+                                <div class="text-xs text-gray-500" x-show="commission.percentage">
+                                    <span x-text="commission.percentage + '%'"></span>
+                                </div>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <div class="text-sm font-semibold text-gray-900" x-text="formatCurrency(commission.amount)"></div>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <div class="text-sm text-gray-900" x-text="formatDate(commission.earned_date)"></div>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span class="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full"
+                                      :class="commission.is_paid ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'">
+                                    <span x-text="commission.is_paid ? 'Paid' : 'Pending'"></span>
+                                </span>
+                                <div x-show="commission.is_paid && commission.payment_date" class="text-xs text-gray-500 mt-1">
+                                    <span x-text="formatDate(commission.payment_date)"></span>
+                                </div>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                <button
+                                    x-show="!commission.is_paid"
+                                    @click="markAsPaid(commission.id)"
+                                    class="text-green-600 hover:text-green-900"
+                                    title="Mark as Paid"
+                                >
+                                    <i class="fas fa-check-circle"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Empty State -->
+        <div x-show="!loading && commissions.length === 0" class="text-center py-12">
+            <i class="fas fa-coins text-gray-400 text-5xl mb-4"></i>
+            <h3 class="text-lg font-medium text-gray-900 mb-2">No commissions found</h3>
+            <p class="text-gray-600">Commissions will appear here once they are created</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function commissionsApp() {
+    return {
+        commissions: [],
+        summary: { total: 0, paid: 0, pending: 0 },
+        loading: false,
+        filters: {
+            is_paid: '',
+            start_date: '',
+            end_date: ''
+        },
+
+        async loadCommissions() {
+            this.loading = true;
+            try {
+                const params = new URLSearchParams();
+                if (this.filters.is_paid !== '') params.append('is_paid', this.filters.is_paid);
+                if (this.filters.start_date) params.append('start_date', this.filters.start_date);
+                if (this.filters.end_date) params.append('end_date', this.filters.end_date);
+
+                const response = await axios.get(`${API_URL}/commissions?${params}`);
+                this.commissions = response.data || [];
+
+                // Calculate summary
+                this.summary = {
+                    total: this.commissions.reduce((sum, c) => sum + c.amount, 0),
+                    paid: this.commissions.filter(c => c.is_paid).reduce((sum, c) => sum + c.amount, 0),
+                    pending: this.commissions.filter(c => !c.is_paid).reduce((sum, c) => sum + c.amount, 0)
+                };
+            } catch (error) {
+                console.error('Error loading commissions:', error);
+                showToast('Failed to load commissions', 'error');
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        async markAsPaid(commissionId) {
+            if (!confirm('Mark this commission as paid?')) return;
+
+            try {
+                await axios.put(`${API_URL}/commissions/${commissionId}`, {
+                    is_paid: true,
+                    payment_date: new Date().toISOString().split('T')[0]
+                });
+
+                showToast('Commission marked as paid', 'success');
+                await this.loadCommissions();
+            } catch (error) {
+                console.error('Error marking commission as paid:', error);
+                showToast('Failed to update commission', 'error');
+            }
+        },
+
+        async exportToExcel() {
+            showLoading();
+            try {
+                const response = await axios.get(`${API_URL}/exports/commissions`, {
+                    responseType: 'blob'
+                });
+
+                const url = window.URL.createObjectURL(new Blob([response.data]));
+                const link = document.createElement('a');
+                link.href = url;
+                link.setAttribute('download', `commissions_${new Date().toISOString().split('T')[0]}.xlsx`);
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+
+                showToast('Commissions exported successfully', 'success');
+            } catch (error) {
+                console.error('Error exporting commissions:', error);
+                showToast('Failed to export commissions', 'error');
+            } finally {
+                hideLoading();
+            }
+        }
+    }
+}
+</script>
+{% endblock %}

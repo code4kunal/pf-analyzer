@@ -1,1417 +1,3188 @@
-from fastapi import FastAPI, Depends, HTTPException, Request, Form
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from fastapi.exceptions import RequestValidationError
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from datetime import datetime, timedelta, date
+from datetime import datetime
 import uvicorn
 import logging
 import os
+import shutil
+from pathlib import Path
 
 from database import engine, get_db
-from models import Base, User, Trade, JournalEntry, Holding, TradeType
+from models import Base, User, UserRole, Document, DocumentCategory, Commission, Invoice, InvoiceStatus
 import schemas
 import auth
-from kite_integration import kite_service
-from performance_calculator import PerformanceCalculator
-from scheduler import start_scheduler
+from config import settings
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Create database tables
-Base.metadata.create_all(bind=engine)
+# Create database tables (in production, use Alembic migrations)
+# Base.metadata.create_all(bind=engine)
 
 # Initialize FastAPI app
-app = FastAPI(title="Portfolio Analyzer", version="1.0.0")
+app = FastAPI(
+    title=settings.app_name,
+    version="1.0.0",
+    description="Customer Management System for Investment Consultancy Firms"
+)
 
-def initialize_database():
-    """Initialize database with default user"""
-    try:
-        from database import SessionLocal
-        db = SessionLocal()
+# CORS Configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"] if settings.debug else [settings.frontend_url],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-        # Check if we need to create the default user
-        existing_user = db.query(User).filter(User.id == 1).first()
-
-        if not existing_user:
-            logger.info("Creating default user for production...")
-
-            # Create default user for production
-            default_user = User(
-                id=1,
-                username="testuser",
-                email="test@example.com",
-                hashed_password="dummy_hash_production",  # Bypass bcrypt for production
-                is_active=True
-            )
-
-            db.add(default_user)
-            db.commit()
-
-            logger.info("✅ Default user created successfully for production")
-        else:
-            logger.info(f"✅ Default user already exists: {existing_user.username}")
-
-        db.close()
-
-    except Exception as e:
-        logger.error(f"❌ Error initializing database: {e}")
-        # Don't fail startup if user creation fails
-        pass
-
-@app.on_event("startup")
-async def startup_event():
-    """Application startup"""
-    initialize_database()
-
-# Create directories if they don't exist
-os.makedirs("static/css", exist_ok=True)
-os.makedirs("static/js", exist_ok=True)
-os.makedirs("templates", exist_ok=True)
-
-# Mount static files
+# Mount static files and templates
 app.mount("/static", StaticFiles(directory="static"), name="static")
-
-# Setup templates
 templates = Jinja2Templates(directory="templates")
 
-# Start scheduler for daily updates (optional, won't crash if fails)
-try:
-    start_scheduler()
-    logger.info("Scheduler started successfully")
-except Exception as e:
-    logger.warning(f"Could not start scheduler: {e}")
+# Create uploads directory if it doesn't exist
+os.makedirs(settings.upload_dir, exist_ok=True)
 
-# Health check endpoint
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy", "service": "Portfolio Analyzer"}
-
-@app.post("/api/init-user")
-async def init_user(db: Session = Depends(get_db)):
-    """Initialize a default user for production (temporary endpoint)"""
-    try:
-        # Check if user exists
-        existing_user = db.query(User).filter(User.id == 1).first()
-        if existing_user:
-            return {"message": "User already exists", "username": existing_user.username, "id": existing_user.id}
-
-        # Create user with direct SQL to avoid bcrypt issues
-        from sqlalchemy import text
-        db.execute(text("""
-            INSERT INTO users (username, email, hashed_password, is_active)
-            VALUES ('portfoliouser', 'portfolio@example.com', 'dummy_hash', 1)
-        """))
-        db.commit()
-
-        # Verify creation
-        user = db.query(User).filter(User.username == "portfoliouser").first()
-        if user:
-            logger.info(f"✅ Created production user: {user.username} (ID: {user.id})")
-            return {"message": "User created successfully", "username": user.username, "id": user.id}
-        else:
-            return {"error": "User creation failed"}
-
-    except Exception as e:
-        logger.error(f"❌ Error creating production user: {e}")
-        db.rollback()
-        return {"error": str(e)}
-
-# Root route - redirect to dashboard
-@app.get("/")
-async def root():
-    return RedirectResponse(url="/dashboard")
-
-# Dashboard route
-@app.get("/dashboard", response_class=HTMLResponse)
-async def dashboard(request: Request):
-    return templates.TemplateResponse("dashboard.html", {"request": request})
-
-# Journal route
-@app.get("/journal", response_class=HTMLResponse)
-async def journal(request: Request):
-    return templates.TemplateResponse("journal.html", {"request": request})
-
-# Settings route
-@app.get("/settings", response_class=HTMLResponse)
-async def settings(request: Request):
-    return templates.TemplateResponse("settings.html", {"request": request})
-
-# API Routes
-
-# Authentication
-@app.post("/api/register", response_model=schemas.UserResponse)
-async def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
-    # Check if user exists
-    db_user = db.query(User).filter(
-        (User.username == user.username) | (User.email == user.email)
-    ).first()
-
-    if db_user:
-        raise HTTPException(status_code=400, detail="Username or email already registered")
-
-    # Create new user
-    hashed_password = auth.get_password_hash(user.password)
-    db_user = User(
-        username=user.username,
-        email=user.email,
-        hashed_password=hashed_password
+# Validation Error Handler
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Log and return detailed validation errors"""
+    logger.error(f"Validation error on {request.url.path}: {exc.errors()}")
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={"detail": exc.errors()}
     )
-    db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
 
-    return db_user
+# ============================================================================
+# HEALTH CHECK
+# ============================================================================
 
-@app.post("/api/login")
-async def login(user: schemas.UserLogin, db: Session = Depends(get_db)):
-    db_user = auth.authenticate_user(db, user.username, user.password)
-
-    if not db_user:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-
-    access_token = auth.create_access_token(data={"sub": db_user.username})
-
+@app.get("/health", tags=["Health"])
+async def health_check():
+    """Health check endpoint"""
     return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "user": schemas.UserResponse.from_orm(db_user)
+        "status": "healthy",
+        "service": settings.app_name,
+        "version": "1.0.0"
     }
 
-# Get current user from token
-async def get_current_user(token: str, db: Session = Depends(get_db)) -> User:
-    username = auth.verify_token(token)
-    if not username:
-        raise HTTPException(status_code=401, detail="Invalid token")
+# ============================================================================
+# AUTHENTICATION ENDPOINTS
+# ============================================================================
 
-    user = db.query(User).filter(User.username == username).first()
+@app.post("/api/auth/login", response_model=schemas.LoginResponse, tags=["Authentication"])
+async def login(
+    login_data: schemas.LoginRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Login endpoint - authenticate user and return JWT token
+    """
+    # Authenticate user
+    user = auth.authenticate_user(db, login_data.email, login_data.password)
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Update last login
+    user.last_login = datetime.utcnow()
+    db.commit()
+
+    # Create access token
+    access_token = auth.create_access_token(
+        data={
+            "sub": user.email,
+            "user_id": user.id,
+            "role": user.role.value
+        }
+    )
+
+    # Log activity
+    auth.log_activity(
+        db=db,
+        entity_type="user",
+        entity_id=user.id,
+        action="login",
+        description=f"{user.full_name} logged in",
+        user_id=user.id
+    )
+
+    return schemas.LoginResponse(
+        access_token=access_token,
+        token_type="bearer",
+        user=user,
+        is_temp_password=user.is_temp_password
+    )
+
+@app.post("/api/auth/change-password", tags=["Authentication"])
+async def change_password(
+    password_data: schemas.PasswordChangeRequest,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Change password - requires old password verification
+    """
+    # Verify old password
+    if not auth.verify_password(password_data.old_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Incorrect current password"
+        )
+
+    # Update password
+    current_user.hashed_password = auth.get_password_hash(password_data.new_password)
+    current_user.is_temp_password = False
+    db.commit()
+
+    # Log activity
+    auth.log_activity(
+        db=db,
+        entity_type="user",
+        entity_id=current_user.id,
+        action="password_change",
+        description=f"{current_user.full_name} changed their password",
+        user_id=current_user.id
+    )
+
+    return {"message": "Password changed successfully"}
+
+@app.get("/api/auth/me", response_model=schemas.UserResponse, tags=["Authentication"])
+async def get_current_user_info(
+    current_user: User = Depends(auth.get_current_user)
+):
+    """
+    Get current user information
+    """
+    return current_user
+
+# ============================================================================
+# USER MANAGEMENT ENDPOINTS (Admin Only)
+# ============================================================================
+
+@app.post("/api/users/invite", response_model=schemas.UserInviteResponse, tags=["Users"])
+async def invite_user(
+    user_data: schemas.UserInvite,
+    current_user: User = Depends(auth.require_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Invite a new user (Admin only)
+    - Generates temporary password
+    - Sends invitation email
+    - Creates user account
+    - Returns temporary password for admin to share securely
+    """
+    # Check if user already exists
+    existing_user = db.query(User).filter(User.email == user_data.email).first()
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User with this email already exists"
+        )
+
+    # Generate temporary password
+    temp_password = auth.generate_temp_password()
+
+    # Create user
+    new_user = User(
+        email=user_data.email,
+        full_name=user_data.full_name,
+        phone=user_data.phone,
+        role=user_data.role,
+        hashed_password=auth.get_password_hash(temp_password),
+        is_temp_password=True,
+        is_active=True,
+        created_by_id=current_user.id
+    )
+
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    # Send invitation email
+    try:
+        auth.send_invitation_email(new_user, temp_password)
+    except Exception as e:
+        logger.error(f"Failed to send invitation email: {e}")
+        # Don't fail the user creation if email fails
+
+    # Log activity
+    auth.log_activity(
+        db=db,
+        entity_type="user",
+        entity_id=new_user.id,
+        action="created",
+        description=f"{current_user.full_name} invited {new_user.full_name}",
+        user_id=current_user.id
+    )
+
+    return schemas.UserInviteResponse(
+        user=new_user,
+        temporary_password=temp_password
+    )
+
+@app.get("/api/users", response_model=List[schemas.UserListResponse], tags=["Users"])
+async def list_users(
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    List all users
+    - Admins can see all users
+    - Employees can see all active users
+    """
+    query = db.query(User)
+
+    # Employees can only see active users
+    if current_user.role == UserRole.EMPLOYEE:
+        query = query.filter(User.is_active == True)
+
+    users = query.order_by(User.created_at.desc()).all()
+    return users
+
+@app.get("/api/users/{user_id}", response_model=schemas.UserResponse, tags=["Users"])
+async def get_user(
+    user_id: int,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get user details by ID
+    """
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
 
     return user
 
-# Trades API
-@app.get("/api/trades", response_model=List[schemas.TradeResponse])
-async def get_trades(
-    skip: int = 0,
-    limit: int = 100,
+@app.put("/api/users/{user_id}", response_model=schemas.UserResponse, tags=["Users"])
+async def update_user(
+    user_id: int,
+    user_data: schemas.UserUpdate,
+    current_user: User = Depends(auth.require_admin),
     db: Session = Depends(get_db)
 ):
-    # For demo, returning all trades. In production, filter by current user
-    trades = db.query(Trade).offset(skip).limit(limit).all()
-    return trades
-
-@app.post("/api/trades", response_model=schemas.TradeResponse)
-async def create_trade(
-    trade: schemas.TradeCreate,
-    db: Session = Depends(get_db)
-):
-    # Calculate total cost
-    total_cost = (trade.quantity * trade.price) + trade.brokerage + trade.taxes
-
-    db_trade = Trade(
-        user_id=1,  # In production, get from current user
-        **trade.dict(),
-        total_cost=total_cost
-    )
-    db.add(db_trade)
-    db.commit()
-    db.refresh(db_trade)
-
-    return db_trade
-
-@app.put("/api/trades/{trade_id}", response_model=schemas.TradeResponse)
-async def update_trade(
-    trade_id: int,
-    trade: schemas.TradeUpdate,
-    db: Session = Depends(get_db)
-):
-    db_trade = db.query(Trade).filter(Trade.id == trade_id).first()
-    if not db_trade:
-        raise HTTPException(status_code=404, detail="Trade not found")
-
-    for key, value in trade.dict(exclude_unset=True).items():
-        setattr(db_trade, key, value)
-
-    db.commit()
-    db.refresh(db_trade)
-
-    return db_trade
-
-@app.delete("/api/trades/{trade_id}")
-async def delete_trade(trade_id: int, db: Session = Depends(get_db)):
-    db_trade = db.query(Trade).filter(Trade.id == trade_id).first()
-    if not db_trade:
-        raise HTTPException(status_code=404, detail="Trade not found")
-
-    db.delete(db_trade)
-    db.commit()
-
-    return {"message": "Trade deleted successfully"}
-
-# Journal API
-@app.get("/api/journal", response_model=List[schemas.JournalResponse])
-async def get_journal_entries(
-    skip: int = 0,
-    limit: int = 100,
-    db: Session = Depends(get_db)
-):
-    entries = db.query(JournalEntry).offset(skip).limit(limit).all()
-    return entries
-
-@app.post("/api/journal", response_model=schemas.JournalResponse)
-async def create_journal_entry(
-    entry: schemas.JournalCreate,
-    db: Session = Depends(get_db)
-):
-    db_entry = JournalEntry(
-        user_id=1,  # In production, get from current user
-        **entry.dict()
-    )
-    db.add(db_entry)
-    db.commit()
-    db.refresh(db_entry)
-
-    return db_entry
-
-@app.put("/api/journal/{entry_id}", response_model=schemas.JournalResponse)
-async def update_journal_entry(
-    entry_id: int,
-    entry: schemas.JournalUpdate,
-    db: Session = Depends(get_db)
-):
-    db_entry = db.query(JournalEntry).filter(JournalEntry.id == entry_id).first()
-    if not db_entry:
-        raise HTTPException(status_code=404, detail="Journal entry not found")
-
-    for key, value in entry.dict(exclude_unset=True).items():
-        setattr(db_entry, key, value)
-
-    db.commit()
-    db.refresh(db_entry)
-
-    return db_entry
-
-# Holdings API
-@app.get("/api/holdings", response_model=List[schemas.HoldingResponse])
-async def get_holdings(db: Session = Depends(get_db)):
-    holdings = db.query(Holding).filter(Holding.user_id == 1).all()  # In production, filter by current user
-    return holdings
-
-# Get current positions (intraday and pending settlement)
-@app.get("/api/positions")
-async def get_positions(db: Session = Depends(get_db)):
-    """Get current positions from Kite (includes today's trades)"""
-    user = db.query(User).filter(User.id == 1).first()  # In production, use current user
-
-    if not user or not user.kite_access_token:
-        return {"error": "Kite not connected", "day": [], "net": []}
-
-    # Initialize Kite
-    kite_service.initialize(user.kite_access_token)
-
-    try:
-        positions = kite_service.get_positions()
-
-        if not positions:
-            return {"day": [], "net": []}
-
-        # Process positions to add realized P&L for closed positions
-        result = {
-            "day": [],
-            "net": []
-        }
-
-        # Process day positions (today's trades)
-        if positions.get("day"):
-            for pos in positions["day"]:
-                position_data = {
-                    "symbol": pos.get("tradingsymbol"),
-                    "exchange": pos.get("exchange"),
-                    "product": pos.get("product"),
-                    "quantity": pos.get("quantity", 0),
-                    "buy_quantity": pos.get("buy_quantity", 0),
-                    "sell_quantity": pos.get("sell_quantity", 0),
-                    "buy_price": pos.get("buy_price", 0),
-                    "sell_price": pos.get("sell_price", 0),
-                    "last_price": pos.get("last_price", 0),
-                    "pnl": pos.get("pnl", 0),
-                    "unrealized": pos.get("unrealised", 0),
-                    "realized": pos.get("realised", 0),
-                    "value": pos.get("value", 0),
-                    "buy_value": pos.get("buy_value", 0),
-                    "sell_value": pos.get("sell_value", 0),
-                    "is_closed": pos.get("quantity", 0) == 0  # Position is closed if quantity is 0
-                }
-                result["day"].append(position_data)
-
-        # Process net positions (overall positions across days)
-        if positions.get("net"):
-            for pos in positions["net"]:
-                position_data = {
-                    "symbol": pos.get("tradingsymbol"),
-                    "exchange": pos.get("exchange"),
-                    "product": pos.get("product"),
-                    "quantity": pos.get("quantity", 0),
-                    "overnight_quantity": pos.get("overnight_quantity", 0),
-                    "buy_quantity": pos.get("buy_quantity", 0),
-                    "sell_quantity": pos.get("sell_quantity", 0),
-                    "buy_price": pos.get("buy_price", 0),
-                    "sell_price": pos.get("sell_price", 0),
-                    "last_price": pos.get("last_price", 0),
-                    "pnl": pos.get("pnl", 0),
-                    "unrealized": pos.get("unrealised", 0),
-                    "realized": pos.get("realised", 0),
-                    "value": pos.get("value", 0),
-                    "buy_value": pos.get("buy_value", 0),
-                    "sell_value": pos.get("sell_value", 0),
-                    "is_closed": pos.get("quantity", 0) == 0  # Position is closed if quantity is 0
-                }
-                result["net"].append(position_data)
-
-        # Calculate total P&L
-        total_realized = sum(pos.get("realized", 0) for pos in result["day"])
-        total_unrealized = sum(pos.get("unrealized", 0) for pos in result["day"])
-
-        result["summary"] = {
-            "total_pnl": total_realized + total_unrealized,
-            "realized_pnl": total_realized,
-            "unrealized_pnl": total_unrealized,
-            "open_positions": sum(1 for pos in result["day"] if not pos["is_closed"]),
-            "closed_positions": sum(1 for pos in result["day"] if pos["is_closed"])
-        }
-
-        return result
-
-    except Exception as e:
-        logger.error(f"Error fetching positions: {e}")
-        return {"error": str(e), "day": [], "net": []}
-
-# Get current orders
-@app.get("/api/orders")
-async def get_orders(db: Session = Depends(get_db)):
-    """Get today's orders from Kite"""
-    user = db.query(User).filter(User.id == 1).first()  # In production, use current user
-
-    if not user or not user.kite_access_token:
-        return []
-
-    # Initialize Kite
-    kite_service.initialize(user.kite_access_token)
-
-    try:
-        orders = kite_service.get_orders()
-
-        if not orders:
-            return []
-
-        # Process and format orders
-        processed_orders = []
-        for order in orders:
-            processed_orders.append({
-                "order_id": order.get("order_id"),
-                "exchange_order_id": order.get("exchange_order_id"),
-                "symbol": order.get("tradingsymbol"),
-                "exchange": order.get("exchange"),
-                "transaction_type": order.get("transaction_type"),
-                "order_type": order.get("order_type"),
-                "product": order.get("product"),
-                "quantity": order.get("quantity", 0),
-                "filled_quantity": order.get("filled_quantity", 0),
-                "pending_quantity": order.get("pending_quantity", 0),
-                "price": order.get("price", 0),
-                "trigger_price": order.get("trigger_price", 0),
-                "average_price": order.get("average_price", 0),
-                "status": order.get("status"),
-                "status_message": order.get("status_message"),
-                "order_timestamp": order.get("order_timestamp"),
-                "exchange_timestamp": order.get("exchange_timestamp"),
-                "tag": order.get("tag")
-            })
-
-        return processed_orders
-
-    except Exception as e:
-        logger.error(f"Error fetching orders: {e}")
-        return []
-
-# Performance API
-@app.get("/api/performance", response_model=schemas.PerformanceMetrics)
-async def get_performance(
-    period: str = "ALL",
-    db: Session = Depends(get_db)
-):
-    calculator = PerformanceCalculator(db, user_id=1)  # In production, use current user
-    metrics = calculator.calculate_portfolio_metrics(period)
-
-    # Enhanced logic to include today's P&L from multiple sources
-    today_realized = 0
-    today_unrealized = 0
-
-    # Try to get today's P&L from Kite positions
-    user = db.query(User).filter(User.id == 1).first()
-    if user and user.kite_access_token:
-        kite_service.initialize(user.kite_access_token)
-        try:
-            positions = kite_service.get_positions()
-            if positions and positions.get("day"):
-                # Calculate today's P&L from positions
-                today_realized = sum(pos.get("realised", 0) for pos in positions["day"])
-                today_unrealized = sum(pos.get("unrealised", 0) for pos in positions["day"])
-
-                # Also check for closed positions (quantity = 0 but has P&L)
-                closed_positions = []
-                for pos in positions["day"]:
-                    if pos.get("quantity", 0) == 0 and pos.get("realised", 0) != 0:
-                        # This is a squared-off position with realized P&L
-                        closed_positions.append({
-                            "symbol": pos.get("tradingsymbol"),
-                            "pnl": pos.get("realised", 0)
-                        })
-                        logger.info(f"Found closed position: {pos.get('tradingsymbol')} P&L: {pos.get('realised', 0)}")
-
-                if closed_positions:
-                    logger.info(f"Total closed positions found: {len(closed_positions)}")
-
-            logger.info(f"Live positions P&L - Realized: {today_realized}, Unrealized: {today_unrealized}")
-        except Exception as e:
-            logger.warning(f"Failed to fetch today's positions for performance: {e}")
-
-    # Fallback: Check for today's trades in database (from recent syncs)
-    today = date.today()
-    today_trades = db.query(Trade).filter(
-        Trade.user_id == 1,
-        Trade.trade_date >= today
-    ).all()
-
-    if today_trades:
-        # Calculate P&L from today's stored trades
-        buy_total = sum(t.total_cost for t in today_trades if t.trade_type == TradeType.BUY)
-        sell_total = sum(t.quantity * t.price - t.brokerage - t.taxes
-                        for t in today_trades if t.trade_type == TradeType.SELL)
-        stored_pnl = sell_total - buy_total
-
-        # Use stored P&L if live data isn't available
-        if today_realized == 0 and stored_pnl != 0:
-            today_realized = stored_pnl
-            logger.info(f"Using stored trades P&L for today: {stored_pnl}")
-
-    # Add today's P&L to metrics if we have any
-    if today_realized != 0 or today_unrealized != 0:
-        metrics["today_pnl"] = today_realized + today_unrealized
-        metrics["today_realized"] = today_realized
-        metrics["today_unrealized"] = today_unrealized
-
-        # Check if we have current holdings to avoid double-counting for closed positions
-        current_investment = metrics.get("total_investment", 0)
-        current_value = metrics.get("current_value", 0)
-
-        # Only add today's P&L if we have open positions (holdings)
-        # For closed positions, the performance calculator already includes all P&L
-        if current_investment > 0 or current_value > 0:
-            # Update total returns to include today's P&L for open positions
-            original_returns = metrics.get("absolute_returns", 0)
-            metrics["absolute_returns"] = original_returns + today_realized + today_unrealized
-            logger.info(f"Enhanced performance with today's P&L for open positions - Original: {original_returns}, Today: {today_realized + today_unrealized}, New Total: {metrics['absolute_returns']}")
-        else:
-            # For fully closed positions, don't add today's P&L to avoid double-counting
-            logger.info(f"Skipping today's P&L addition for closed positions to avoid double-counting. Realized P&L: {today_realized}, Performance calculator already accounts for closed trades.")
-    else:
-        logger.info("No today's P&L data found to add to performance metrics")
-
-    # Enhanced percentage calculation based on account net worth
-    try:
-        margins = kite_service.get_margins()
-        if margins:
-            equity = margins.get("equity", {})
-            net_worth = equity.get("net", 0)
-
-            if net_worth > 0:
-                # Calculate percentage based on total account value (net worth)
-                metrics["percentage_returns"] = (metrics["absolute_returns"] / net_worth) * 100
-                metrics["account_net_worth"] = net_worth
-                logger.info(f"Updated percentage based on net worth: {metrics['percentage_returns']:.2f}% (Returns: {metrics['absolute_returns']}, Net Worth: {net_worth})")
-            else:
-                # Fallback to investment-based calculation if net worth not available
-                total_investment = metrics.get("total_investment", 0)
-                if total_investment > 0:
-                    metrics["percentage_returns"] = (metrics["absolute_returns"] / total_investment) * 100
-    except Exception as e:
-        logger.warning(f"Could not fetch net worth for percentage calculation: {e}")
-        # Keep the original calculation as fallback
-
-    return schemas.PerformanceMetrics(**metrics)
-
-@app.get("/api/statistics")
-async def get_statistics(db: Session = Depends(get_db)):
-    calculator = PerformanceCalculator(db, user_id=1)  # In production, use current user
-    stats = calculator.get_trade_statistics()
-
-    return stats
-
-# Comprehensive Portfolio Summary
-@app.get("/api/portfolio-summary")
-async def get_portfolio_summary(db: Session = Depends(get_db)):
-    """Get complete portfolio summary including holdings, positions, and orders"""
-    user = db.query(User).filter(User.id == 1).first()  # In production, use current user
-
-    summary = {
-        "holdings": [],
-        "positions": {"day": [], "net": []},
-        "orders": [],
-        "totals": {
-            "holdings_value": 0,
-            "positions_value": 0,
-            "today_pnl": 0,
-            "today_realized": 0,
-            "today_unrealized": 0,
-            "total_investment": 0
-        },
-        "status": {
-            "kite_connected": False,
-            "last_sync": None
-        }
-    }
-
-    # Get holdings from database
-    holdings = db.query(Holding).filter(Holding.user_id == 1).all()
-    for holding in holdings:
-        summary["holdings"].append({
-            "symbol": holding.symbol,
-            "exchange": holding.exchange,
-            "quantity": holding.quantity,
-            "average_price": holding.average_price,
-            "current_price": holding.current_price,
-            "value": holding.quantity * (holding.current_price or holding.average_price),
-            "pnl": holding.unrealized_pnl,
-            "pnl_percentage": holding.unrealized_pnl_percentage
-        })
-        summary["totals"]["holdings_value"] += holding.quantity * (holding.current_price or holding.average_price)
-        summary["totals"]["total_investment"] += holding.quantity * holding.average_price
-
-    # Get live data from Kite if connected
-    if user and user.kite_access_token:
-        summary["status"]["kite_connected"] = True
-        kite_service.initialize(user.kite_access_token)
-
-        try:
-            # Get positions
-            positions = kite_service.get_positions()
-            if positions:
-                # Day positions
-                if positions.get("day"):
-                    for pos in positions["day"]:
-                        pos_data = {
-                            "symbol": pos.get("tradingsymbol"),
-                            "exchange": pos.get("exchange"),
-                            "quantity": pos.get("quantity", 0),
-                            "buy_price": pos.get("buy_price", 0),
-                            "sell_price": pos.get("sell_price", 0),
-                            "last_price": pos.get("last_price", 0),
-                            "pnl": pos.get("pnl", 0),
-                            "realized": pos.get("realised", 0),
-                            "unrealized": pos.get("unrealised", 0),
-                            "is_closed": pos.get("quantity", 0) == 0
-                        }
-                        summary["positions"]["day"].append(pos_data)
-
-                        # Add to totals
-                        summary["totals"]["today_realized"] += pos.get("realised", 0)
-                        summary["totals"]["today_unrealized"] += pos.get("unrealised", 0)
-                        if pos.get("quantity", 0) != 0:
-                            summary["totals"]["positions_value"] += pos.get("value", 0)
-
-                # Net positions
-                if positions.get("net"):
-                    for pos in positions["net"]:
-                        if pos.get("quantity", 0) != 0:  # Only show open positions
-                            summary["positions"]["net"].append({
-                                "symbol": pos.get("tradingsymbol"),
-                                "exchange": pos.get("exchange"),
-                                "quantity": pos.get("quantity", 0),
-                                "average_price": pos.get("average_price", 0),
-                                "last_price": pos.get("last_price", 0),
-                                "pnl": pos.get("pnl", 0)
-                            })
-
-            # Get orders
-            orders = kite_service.get_orders()
-            if orders:
-                # Only show today's orders
-                today_orders = []
-                for order in orders:
-                    order_time = order.get("order_timestamp")
-                    if order_time and datetime.now().date() == datetime.fromisoformat(order_time.replace("Z", "+00:00")).date():
-                        today_orders.append({
-                            "order_id": order.get("order_id"),
-                            "symbol": order.get("tradingsymbol"),
-                            "transaction_type": order.get("transaction_type"),
-                            "quantity": order.get("quantity"),
-                            "price": order.get("price"),
-                            "status": order.get("status"),
-                            "order_time": order_time
-                        })
-                summary["orders"] = today_orders
-
-            summary["totals"]["today_pnl"] = summary["totals"]["today_realized"] + summary["totals"]["today_unrealized"]
-
-        except Exception as e:
-            logger.error(f"Error fetching live data: {e}")
-            summary["status"]["error"] = str(e)
-
-    # Calculate total portfolio value
-    summary["totals"]["total_value"] = summary["totals"]["holdings_value"] + summary["totals"]["positions_value"]
-
-    return summary
-
-# Test endpoint to simulate squared off positions
-@app.get("/api/test-squared-positions")
-async def test_squared_positions():
-    """Simulate what squared off positions would look like"""
-    return {
-        "day": [
-            {
-                "symbol": "RELIANCE",
-                "exchange": "NSE",
-                "quantity": 0,  # Squared off
-                "buy_quantity": 10,
-                "sell_quantity": 10,
-                "buy_price": 2450.50,
-                "sell_price": 2465.25,
-                "last_price": 2465.25,
-                "pnl": 147.50,  # (2465.25 - 2450.50) * 10
-                "realized": 147.50,
-                "unrealized": 0,
-                "value": 0,
-                "buy_value": 24505.00,
-                "sell_value": 24652.50,
-                "is_closed": True
-            },
-            {
-                "symbol": "TCS",
-                "exchange": "NSE",
-                "quantity": 0,  # Squared off
-                "buy_quantity": 5,
-                "sell_quantity": 5,
-                "buy_price": 3680.75,
-                "sell_price": 3695.20,
-                "last_price": 3695.20,
-                "pnl": 72.25,  # (3695.20 - 3680.75) * 5
-                "realized": 72.25,
-                "unrealized": 0,
-                "value": 0,
-                "buy_value": 18403.75,
-                "sell_value": 18476.00,
-                "is_closed": True
-            },
-            {
-                "symbol": "HDFCBANK",
-                "exchange": "NSE",
-                "quantity": 3,  # Still open
-                "buy_quantity": 3,
-                "sell_quantity": 0,
-                "buy_price": 1720.30,
-                "sell_price": 0,
-                "last_price": 1735.50,
-                "pnl": 45.60,  # (1735.50 - 1720.30) * 3
-                "realized": 0,
-                "unrealized": 45.60,
-                "value": 5206.50,
-                "buy_value": 5160.90,
-                "sell_value": 0,
-                "is_closed": False
-            }
-        ],
-        "summary": {
-            "total_pnl": 265.35,  # 147.50 + 72.25 + 45.60
-            "realized_pnl": 219.75,  # 147.50 + 72.25
-            "unrealized_pnl": 45.60,
-            "open_positions": 1,
-            "closed_positions": 2
-        }
-    }
-
-# Kite Integration API
-@app.get("/api/kite/login-url")
-async def get_kite_login_url():
-    return {"url": kite_service.get_login_url()}
-
-@app.get("/api/kite/status")
-async def get_kite_status(db: Session = Depends(get_db)):
-    """Check if Kite is connected"""
-    user = db.query(User).filter(User.id == 1).first()  # In production, use current user
-
-    if user and user.kite_access_token:
-        return {
-            "connected": True,
-            "user_id": user.kite_user_id,
-            "message": f"Connected as {user.kite_user_id}"
-        }
-    else:
-        return {
-            "connected": False,
-            "user_id": None,
-            "message": "Not connected to Zerodha Kite"
-        }
-
-@app.get("/api/kite/callback")
-async def kite_callback(
-    request_token: str = None,
-    status: str = None,
-    db: Session = Depends(get_db)
-):
-    """Handle Kite redirect after authentication"""
-    logger.info(f"🔍 Kite callback received - Token: {request_token}, Status: {status}")
-
-    if status == "cancelled" or not request_token:
-        logger.warning(f"❌ Callback cancelled or no token")
-        return RedirectResponse(url="/settings?error=cancelled")
-
-    try:
-        logger.info(f"📞 Attempting to generate session with token: {request_token}")
-        # Generate session with request token
-        session_data = kite_service.generate_session(request_token)
-
-        if session_data:
-            logger.info(f"✅ Session generated successfully for user: {session_data.get('user_id')}")
-            # Update user's Kite credentials
-            user = db.query(User).filter(User.id == 1).first()  # In production, use current user
-            if user:
-                user.kite_user_id = session_data.get("user_id")
-                user.kite_access_token = session_data.get("access_token")
-                user.kite_refresh_token = session_data.get("refresh_token")
-                db.commit()
-                logger.info(f"✅ Saved credentials to database for user: {user.username}")
-            else:
-                logger.error(f"❌ No user found with ID 1")
-
-            return RedirectResponse(url="/settings?success=true")
-        else:
-            logger.error(f"❌ Failed to generate session data")
-            return RedirectResponse(url="/settings?error=auth_failed")
-    except Exception as e:
-        logger.error(f"❌ Callback error: {e}")
-        return RedirectResponse(url=f"/settings?error={str(e)}")
-
-@app.post("/api/kite/postback")
-async def kite_postback(request: Request):
-    """Handle Kite postback for order updates"""
-    try:
-        data = await request.json()
-        # Log the postback data for order updates
-        logger.info(f"Kite postback received: {data}")
-        # Process order updates here if needed
-        return {"status": "success"}
-    except Exception as e:
-        logger.error(f"Error processing Kite postback: {e}")
-        return {"status": "error", "message": str(e)}
-
-@app.post("/api/kite/authorize", response_model=schemas.KiteAuthResponse)
-async def authorize_kite(
-    auth_request: schemas.KiteAuthRequest,
-    db: Session = Depends(get_db)
-):
-    session_data = kite_service.generate_session(auth_request.request_token)
-
-    if not session_data:
-        return schemas.KiteAuthResponse(
-            success=False,
-            message="Failed to authorize with Kite"
+    """
+    Update user (Admin only)
+    """
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
         )
 
-    # Update user's Kite credentials
-    user = db.query(User).filter(User.id == 1).first()  # In production, use current user
-    if user:
-        user.kite_user_id = session_data.get("user_id")
-        user.kite_access_token = session_data.get("access_token")
-        user.kite_refresh_token = session_data.get("refresh_token")
-        db.commit()
+    # Update fields
+    if user_data.full_name is not None:
+        user.full_name = user_data.full_name
+    if user_data.phone is not None:
+        user.phone = user_data.phone
+    if user_data.is_active is not None:
+        user.is_active = user_data.is_active
 
-    return schemas.KiteAuthResponse(
-        success=True,
-        message="Successfully authorized with Kite",
-        user_id=session_data.get("user_id")
+    db.commit()
+    db.refresh(user)
+
+    # Log activity
+    auth.log_activity(
+        db=db,
+        entity_type="user",
+        entity_id=user.id,
+        action="updated",
+        description=f"{current_user.full_name} updated {user.full_name}",
+        user_id=current_user.id
     )
 
-@app.get("/api/kite/sync")
-async def sync_portfolio(db: Session = Depends(get_db)):
-    """Sync portfolio with Kite"""
-    user = db.query(User).filter(User.id == 1).first()  # In production, use current user
+    return user
 
-    if not user or not user.kite_access_token:
-        raise HTTPException(status_code=400, detail="Kite not connected")
+@app.delete("/api/users/{user_id}", tags=["Users"])
+async def delete_user(
+    user_id: int,
+    current_user: User = Depends(auth.require_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete user (Admin only)
+    - Actually just deactivates the user
+    """
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
 
-    # Initialize Kite with user's access token
-    kite_service.initialize(user.kite_access_token)
+    # Don't allow deleting yourself
+    if user.id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete your own account"
+        )
 
-    # Sync holdings
-    kite_holdings = kite_service.get_holdings()
-    if kite_holdings:
-        # Clear existing holdings
-        db.query(Holding).filter(Holding.user_id == user.id).delete()
+    # Deactivate instead of delete
+    user.is_active = False
+    db.commit()
 
-        # Add new holdings
-        for kh in kite_holdings:
-            holding = Holding(
-                user_id=user.id,
-                symbol=kh["tradingsymbol"],
-                exchange=kh["exchange"],
-                quantity=kh["quantity"],
-                average_price=kh["average_price"],
-                current_price=kh["last_price"],
-                unrealized_pnl=kh["pnl"],
-                unrealized_pnl_percentage=(kh["pnl"] / (kh["average_price"] * kh["quantity"]) * 100) if kh["quantity"] > 0 else 0
+    # Log activity
+    auth.log_activity(
+        db=db,
+        entity_type="user",
+        entity_id=user.id,
+        action="deleted",
+        description=f"{current_user.full_name} deactivated {user.full_name}",
+        user_id=current_user.id
+    )
+
+    return {"message": "User deactivated successfully"}
+
+@app.post("/api/users/{user_id}/reset-password", tags=["Users"])
+async def reset_user_password(
+    user_id: int,
+    current_user: User = Depends(auth.require_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Reset user password (Admin only)
+    - Generates new temporary password
+    - Sends email notification
+    """
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+
+    # Generate new temporary password
+    temp_password = auth.generate_temp_password()
+
+    # Update password
+    user.hashed_password = auth.get_password_hash(temp_password)
+    user.is_temp_password = True
+    db.commit()
+
+    # Send email
+    try:
+        auth.send_password_reset_email(user, temp_password)
+    except Exception as e:
+        logger.error(f"Failed to send password reset email: {e}")
+
+    # Log activity
+    auth.log_activity(
+        db=db,
+        entity_type="user",
+        entity_id=user.id,
+        action="password_reset",
+        description=f"{current_user.full_name} reset password for {user.full_name}",
+        user_id=current_user.id
+    )
+
+    return {"message": "Password reset successfully", "temp_password": temp_password}
+
+# ============================================================================
+# CUSTOMER MANAGEMENT ENDPOINTS
+# ============================================================================
+
+@app.post("/api/customers", response_model=schemas.CustomerResponse, tags=["Customers"])
+async def create_customer(
+    customer_data: schemas.CustomerCreate,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Create a new customer
+    """
+    from models import Customer
+
+    # Check if customer with email already exists
+    existing = db.query(Customer).filter(Customer.email == customer_data.email).first()
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Customer with this email already exists"
+        )
+
+    # Check if PAN already exists (if provided)
+    if customer_data.pan_number:
+        existing_pan = db.query(Customer).filter(Customer.pan_number == customer_data.pan_number).first()
+        if existing_pan:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Customer with this PAN already exists"
             )
-            db.add(holding)
 
-        db.commit()
+    # Create customer
+    customer = Customer(
+        **customer_data.dict(),
+        created_by_id=current_user.id
+    )
 
-    # Sync today's trades
-    kite_trades = kite_service.get_trades()
-    trades_synced = 0
-    if kite_trades:
-        for kt in kite_trades:
-            # Check if trade already exists
-            existing_trade = db.query(Trade).filter(
-                Trade.zerodha_trade_id == kt["trade_id"]
-            ).first()
+    db.add(customer)
+    db.commit()
+    db.refresh(customer)
 
-            if not existing_trade:
-                trade = Trade(
-                    user_id=user.id,
-                    symbol=kt["tradingsymbol"],
-                    exchange=kt["exchange"],
-                    trade_type="BUY" if kt["transaction_type"] == "BUY" else "SELL",
-                    order_type=kt.get("order_type", "MARKET"),
-                    quantity=kt["quantity"],
-                    price=kt["average_price"],
-                    brokerage=0,  # Would need to calculate
-                    taxes=0,  # Would need to calculate
-                    total_cost=kt["quantity"] * kt["average_price"],
-                    trade_date=datetime.now(),
-                    zerodha_order_id=kt.get("order_id"),
-                    zerodha_trade_id=kt["trade_id"]
+    # Log activity
+    auth.log_activity(
+        db=db,
+        entity_type="customer",
+        entity_id=customer.id,
+        action="created",
+        description=f"{current_user.full_name} created customer {customer.full_name}",
+        user_id=current_user.id
+    )
+
+    return customer
+
+@app.get("/api/customers", tags=["Customers"])
+async def list_customers(
+    page: int = 1,
+    page_size: int = 20,
+    search: str = None,
+    status: str = None,
+    risk_profile: str = None,
+    relationship_manager_id: int = None,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    List customers with pagination and filters
+    - Supports search by name, email, phone, PAN
+    - Filter by status, risk profile, relationship manager
+    """
+    from models import Customer, CustomerStatus, RiskProfile
+    from sqlalchemy import or_, func
+    import math
+
+    query = db.query(Customer)
+
+    # Employees only see customers assigned to them
+    if current_user.role == UserRole.EMPLOYEE:
+        query = query.filter(Customer.relationship_manager_id == current_user.id)
+
+    # Apply search filter
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(
+            or_(
+                Customer.full_name.ilike(search_term),
+                Customer.email.ilike(search_term),
+                Customer.phone.ilike(search_term),
+                Customer.pan_number.ilike(search_term)
+            )
+        )
+
+    # Apply status filter
+    if status:
+        try:
+            status_enum = CustomerStatus(status)
+            query = query.filter(Customer.status == status_enum)
+        except ValueError:
+            pass
+
+    # Apply risk profile filter
+    if risk_profile:
+        try:
+            risk_enum = RiskProfile(risk_profile)
+            query = query.filter(Customer.risk_profile == risk_enum)
+        except ValueError:
+            pass
+
+    # Apply relationship manager filter
+    if relationship_manager_id:
+        query = query.filter(Customer.relationship_manager_id == relationship_manager_id)
+
+    # Get total count
+    total = query.count()
+
+    # Apply pagination
+    offset = (page - 1) * page_size
+    customers = query.order_by(Customer.created_at.desc()).offset(offset).limit(page_size).all()
+
+    # Calculate total pages
+    total_pages = math.ceil(total / page_size) if total > 0 else 0
+
+    return {
+        "items": customers,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": total_pages
+    }
+
+@app.get("/api/customers/{customer_id}", response_model=schemas.CustomerDetailResponse, tags=["Customers"])
+async def get_customer(
+    customer_id: int,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get customer details by ID with family members and nominees
+    """
+    from models import Customer
+
+    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Customer not found"
+        )
+
+    # Employees can only view their assigned customers
+    if current_user.role == UserRole.EMPLOYEE:
+        if customer.relationship_manager_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have access to this customer"
+            )
+
+    return customer
+
+@app.put("/api/customers/{customer_id}", response_model=schemas.CustomerResponse, tags=["Customers"])
+async def update_customer(
+    customer_id: int,
+    customer_data: schemas.CustomerUpdate,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Update customer details
+    """
+    from models import Customer
+
+    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Customer not found"
+        )
+
+    # Employees can only update their assigned customers
+    if current_user.role == UserRole.EMPLOYEE:
+        if customer.relationship_manager_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have access to this customer"
+            )
+
+    # Track changes for activity log
+    changes = {}
+
+    # Update fields
+    update_data = customer_data.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        if value is not None and getattr(customer, field) != value:
+            changes[field] = {"old": str(getattr(customer, field)), "new": str(value)}
+            setattr(customer, field, value)
+
+    db.commit()
+    db.refresh(customer)
+
+    # Log activity
+    if changes:
+        auth.log_activity(
+            db=db,
+            entity_type="customer",
+            entity_id=customer.id,
+            action="updated",
+            description=f"{current_user.full_name} updated customer {customer.full_name}",
+            user_id=current_user.id,
+            changes=changes
+        )
+
+    return customer
+
+@app.delete("/api/customers/{customer_id}", tags=["Customers"])
+async def delete_customer(
+    customer_id: int,
+    current_user: User = Depends(auth.require_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete customer (Admin only)
+    - Cascading delete removes all related data
+    """
+    from models import Customer
+
+    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Customer not found"
+        )
+
+    customer_name = customer.full_name
+
+    # Log activity before deletion
+    auth.log_activity(
+        db=db,
+        entity_type="customer",
+        entity_id=customer.id,
+        action="deleted",
+        description=f"{current_user.full_name} deleted customer {customer_name}",
+        user_id=current_user.id
+    )
+
+    db.delete(customer)
+    db.commit()
+
+    return {"message": "Customer deleted successfully"}
+
+# ============================================================================
+# FAMILY MEMBERS & NOMINEES
+# ============================================================================
+
+@app.post("/api/customers/{customer_id}/family-members", response_model=schemas.FamilyMemberResponse, tags=["Customers"])
+async def add_family_member(
+    customer_id: int,
+    member_data: schemas.FamilyMemberCreate,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Add family member to customer
+    """
+    from models import Customer, FamilyMember
+
+    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Customer not found"
+        )
+
+    member = FamilyMember(
+        customer_id=customer_id,
+        **member_data.dict()
+    )
+
+    db.add(member)
+    db.commit()
+    db.refresh(member)
+
+    return member
+
+@app.delete("/api/customers/{customer_id}/family-members/{member_id}", tags=["Customers"])
+async def remove_family_member(
+    customer_id: int,
+    member_id: int,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Remove family member
+    """
+    from models import FamilyMember
+
+    member = db.query(FamilyMember).filter(
+        FamilyMember.id == member_id,
+        FamilyMember.customer_id == customer_id
+    ).first()
+
+    if not member:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Family member not found"
+        )
+
+    db.delete(member)
+    db.commit()
+
+    return {"message": "Family member removed successfully"}
+
+@app.post("/api/customers/{customer_id}/nominees", response_model=schemas.NomineeResponse, tags=["Customers"])
+async def add_nominee(
+    customer_id: int,
+    nominee_data: schemas.NomineeCreate,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Add nominee to customer
+    """
+    from models import Customer, Nominee
+
+    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Customer not found"
+        )
+
+    nominee = Nominee(
+        customer_id=customer_id,
+        **nominee_data.dict()
+    )
+
+    db.add(nominee)
+    db.commit()
+    db.refresh(nominee)
+
+    return nominee
+
+@app.delete("/api/customers/{customer_id}/nominees/{nominee_id}", tags=["Customers"])
+async def remove_nominee(
+    customer_id: int,
+    nominee_id: int,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Remove nominee
+    """
+    from models import Nominee
+
+    nominee = db.query(Nominee).filter(
+        Nominee.id == nominee_id,
+        Nominee.customer_id == customer_id
+    ).first()
+
+    if not nominee:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Nominee not found"
+        )
+
+    db.delete(nominee)
+    db.commit()
+
+    return {"message": "Nominee removed successfully"}
+
+# ============================================================================
+# INVESTMENT TRACKING
+# ============================================================================
+
+@app.post("/api/investments", response_model=schemas.InvestmentResponse, tags=["Investments"])
+async def create_investment(
+    investment_data: schemas.InvestmentCreate,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Create a new investment for a customer
+    """
+    from models import Investment, Customer
+
+    # Verify customer exists
+    customer = db.query(Customer).filter(Customer.id == investment_data.customer_id).first()
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Customer not found"
+        )
+
+    # Calculate returns if current value is provided
+    invested_amount = investment_data.invested_amount
+    current_value = investment_data.current_value
+
+    returns_absolute = None
+    returns_percentage = None
+
+    if current_value:
+        returns_absolute = current_value - invested_amount
+        returns_percentage = (returns_absolute / invested_amount) * 100 if invested_amount > 0 else 0
+
+    # Create investment
+    investment = Investment(
+        **investment_data.dict(exclude={'customer_id'}),
+        customer_id=investment_data.customer_id,
+        returns_absolute=returns_absolute,
+        returns_percentage=returns_percentage
+    )
+
+    db.add(investment)
+
+    # Update customer's portfolio value
+    if current_value:
+        customer.current_portfolio_value += current_value
+    else:
+        customer.current_portfolio_value += invested_amount
+
+    db.commit()
+    db.refresh(investment)
+
+    # Log activity
+    auth.log_activity(
+        db=db,
+        entity_type="investment",
+        entity_id=investment.id,
+        action="created",
+        description=f"{current_user.full_name} added investment {investment.investment_name} for {customer.full_name}",
+        user_id=current_user.id
+    )
+
+    return investment
+
+@app.get("/api/customers/{customer_id}/investments", response_model=List[schemas.InvestmentResponse], tags=["Investments"])
+async def get_customer_investments(
+    customer_id: int,
+    is_active: bool = None,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all investments for a customer
+    """
+    from models import Investment, Customer
+
+    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Customer not found"
+        )
+
+    query = db.query(Investment).filter(Investment.customer_id == customer_id)
+
+    if is_active is not None:
+        query = query.filter(Investment.is_active == is_active)
+
+    investments = query.order_by(Investment.investment_date.desc()).all()
+    return investments
+
+@app.put("/api/investments/{investment_id}", response_model=schemas.InvestmentResponse, tags=["Investments"])
+async def update_investment(
+    investment_id: int,
+    investment_data: schemas.InvestmentUpdate,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Update investment details (mainly current value and returns)
+    """
+    from models import Investment
+
+    investment = db.query(Investment).filter(Investment.id == investment_id).first()
+    if not investment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Investment not found"
+        )
+
+    # Update fields
+    update_data = investment_data.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        if value is not None:
+            setattr(investment, field, value)
+
+    # Recalculate returns if current value changed
+    if investment_data.current_value is not None:
+        investment.returns_absolute = investment.current_value - investment.invested_amount
+        investment.returns_percentage = (investment.returns_absolute / investment.invested_amount) * 100 if investment.invested_amount > 0 else 0
+
+    db.commit()
+    db.refresh(investment)
+
+    return investment
+
+@app.delete("/api/investments/{investment_id}", tags=["Investments"])
+async def delete_investment(
+    investment_id: int,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete an investment
+    """
+    from models import Investment
+
+    investment = db.query(Investment).filter(Investment.id == investment_id).first()
+    if not investment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Investment not found"
+        )
+
+    db.delete(investment)
+    db.commit()
+
+    return {"message": "Investment deleted successfully"}
+
+# ============================================================================
+# COMMUNICATION LOGS
+# ============================================================================
+
+@app.post("/api/communications", response_model=schemas.CommunicationResponse, tags=["Communications"])
+async def create_communication(
+    comm_data: schemas.CommunicationCreate,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Log a communication with a customer
+    """
+    from models import Communication, Customer
+
+    customer = db.query(Customer).filter(Customer.id == comm_data.customer_id).first()
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Customer not found"
+        )
+
+    communication = Communication(
+        **comm_data.dict(),
+        user_id=current_user.id
+    )
+
+    db.add(communication)
+    db.commit()
+    db.refresh(communication)
+
+    return communication
+
+@app.get("/api/customers/{customer_id}/communications", response_model=List[schemas.CommunicationResponse], tags=["Communications"])
+async def get_customer_communications(
+    customer_id: int,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all communications for a customer
+    """
+    from models import Communication
+
+    communications = db.query(Communication).filter(
+        Communication.customer_id == customer_id
+    ).order_by(Communication.communication_date.desc()).all()
+
+    return communications
+
+# ============================================================================
+# NOTES
+# ============================================================================
+
+@app.post("/api/notes", response_model=schemas.NoteResponse, tags=["Notes"])
+async def create_note(
+    note_data: schemas.NoteCreate,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Create a note for a customer
+    """
+    from models import Note, Customer
+
+    customer = db.query(Customer).filter(Customer.id == note_data.customer_id).first()
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Customer not found"
+        )
+
+    note = Note(
+        **note_data.dict(),
+        created_by_id=current_user.id
+    )
+
+    db.add(note)
+    db.commit()
+    db.refresh(note)
+
+    return note
+
+@app.get("/api/customers/{customer_id}/notes", response_model=List[schemas.NoteResponse], tags=["Notes"])
+async def get_customer_notes(
+    customer_id: int,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all notes for a customer
+    - Private notes only visible to creator
+    """
+    from models import Note
+
+    query = db.query(Note).filter(Note.customer_id == customer_id)
+
+    # Filter private notes
+    if current_user.role != UserRole.ADMIN:
+        from sqlalchemy import or_
+        query = query.filter(
+            or_(
+                Note.is_private == False,
+                Note.created_by_id == current_user.id
+            )
+        )
+
+    notes = query.order_by(Note.created_at.desc()).all()
+    return notes
+
+@app.put("/api/notes/{note_id}", response_model=schemas.NoteResponse, tags=["Notes"])
+async def update_note(
+    note_id: int,
+    note_data: schemas.NoteUpdate,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Update a note (only creator can update)
+    """
+    from models import Note
+
+    note = db.query(Note).filter(Note.id == note_id).first()
+    if not note:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Note not found"
+        )
+
+    # Only creator can update note
+    if note.created_by_id != current_user.id and current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only update your own notes"
+        )
+
+    update_data = note_data.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        if value is not None:
+            setattr(note, field, value)
+
+    db.commit()
+    db.refresh(note)
+
+    return note
+
+@app.delete("/api/notes/{note_id}", tags=["Notes"])
+async def delete_note(
+    note_id: int,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete a note (only creator can delete)
+    """
+    from models import Note
+
+    note = db.query(Note).filter(Note.id == note_id).first()
+    if not note:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Note not found"
+        )
+
+    # Only creator can delete note
+    if note.created_by_id != current_user.id and current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only delete your own notes"
+        )
+
+    db.delete(note)
+    db.commit()
+
+    return {"message": "Note deleted successfully"}
+
+# ============================================================================
+# ACTIVITY LOGS
+# ============================================================================
+
+@app.get("/api/customers/{customer_id}/activities", response_model=List[schemas.ActivityLogResponse], tags=["Activity"])
+async def get_customer_activities(
+    customer_id: int,
+    limit: int = 50,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get activity timeline for a customer
+    """
+    from models import ActivityLog
+
+    activities = db.query(ActivityLog).filter(
+        ActivityLog.entity_type == "customer",
+        ActivityLog.entity_id == customer_id
+    ).order_by(ActivityLog.created_at.desc()).limit(limit).all()
+
+    return activities
+
+# ============================================================================
+# NOTIFICATIONS
+# ============================================================================
+
+@app.get("/api/notifications", response_model=List[schemas.NotificationResponse], tags=["Notifications"])
+async def get_notifications(
+    unread_only: bool = False,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get notifications for current user
+    """
+    from models import Notification
+
+    query = db.query(Notification).filter(Notification.user_id == current_user.id)
+
+    if unread_only:
+        query = query.filter(Notification.is_read == False)
+
+    notifications = query.order_by(Notification.created_at.desc()).limit(50).all()
+    return notifications
+
+@app.put("/api/notifications/{notification_id}/read", tags=["Notifications"])
+async def mark_notification_read(
+    notification_id: int,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Mark notification as read
+    """
+    from models import Notification
+
+    notification = db.query(Notification).filter(
+        Notification.id == notification_id,
+        Notification.user_id == current_user.id
+    ).first()
+
+    if not notification:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Notification not found"
+        )
+
+    notification.is_read = True
+    notification.read_at = datetime.utcnow()
+    db.commit()
+
+    return {"message": "Notification marked as read"}
+
+# ============================================================================
+# CALENDAR & EVENTS
+# ============================================================================
+
+@app.post("/api/events", response_model=schemas.EventResponse, tags=["Events"])
+async def create_event(
+    event_data: schemas.EventCreate,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Create a new event with optional Google Meet link
+    """
+    from models import Event, Customer, EventParticipant, Notification, NotificationType
+    from google_calendar_service import google_calendar_service
+
+    # Create event
+    event = Event(
+        title=event_data.title,
+        event_type=event_data.event_type,
+        description=event_data.description,
+        start_time=event_data.start_time,
+        end_time=event_data.end_time,
+        location=event_data.location,
+        created_by_id=current_user.id
+    )
+
+    # Generate Google Meet link if requested
+    if event_data.create_meet_link:
+        try:
+            meet_link = google_calendar_service.create_meet_link(
+                title=event_data.title,
+                description=event_data.description or "",
+                start_time=event_data.start_time,
+                end_time=event_data.end_time,
+                attendees=[]  # Will add after getting customer emails
+            )
+            event.meet_link = meet_link
+        except Exception as e:
+            logger.error(f"Failed to create Google Meet link: {e}")
+
+    db.add(event)
+    db.flush()  # Get event ID before adding participants
+
+    # Add participants
+    if event_data.participant_ids:
+        for customer_id in event_data.participant_ids:
+            customer = db.query(Customer).filter(Customer.id == customer_id).first()
+            if customer:
+                participant = EventParticipant(
+                    event_id=event.id,
+                    customer_id=customer_id
                 )
-                db.add(trade)
-                trades_synced += 1
+                db.add(participant)
 
-        db.commit()
+                # Create notification for relationship manager
+                if customer.relationship_manager_id:
+                    notification = Notification(
+                        user_id=customer.relationship_manager_id,
+                        notification_type=NotificationType.EVENT_REMINDER,
+                        title=f"New Event: {event.title}",
+                        message=f"Event scheduled with {customer.full_name} on {event.start_time.strftime('%b %d, %Y at %I:%M %p')}",
+                        action_url=f"/events/{event.id}",
+                        event_id=event.id,
+                        customer_id=customer_id
+                    )
+                    db.add(notification)
 
-    # Get today's positions (includes intraday and pending settlements)
-    positions = kite_service.get_positions()
-    positions_info = ""
-    closed_positions_synced = 0
+    db.commit()
+    db.refresh(event)
 
-    if positions and "day" in positions:
-        day_positions = positions["day"]
-        if day_positions:
-            positions_info = f" Found {len(day_positions)} day positions."
+    # Log activity
+    auth.log_activity(
+        db=db,
+        entity_type="event",
+        entity_id=event.id,
+        action="created",
+        description=f"{current_user.full_name} created event: {event.title}",
+        user_id=current_user.id
+    )
 
-            # Check for closed positions and save their realized P&L
-            for pos in day_positions:
-                if pos.get("quantity", 0) == 0 and pos.get("realised", 0) != 0:
-                    # This is a closed position with realized P&L
-                    # Check if we already have this as a trade pair (more specific check)
-                    existing_closed_trade = db.query(Trade).filter(
-                        Trade.user_id == user.id,
-                        Trade.symbol == pos.get("tradingsymbol"),
-                        Trade.trade_date >= datetime.now().date(),
-                        Trade.trade_type == "SELL",  # Check for sell trade specifically
-                        Trade.quantity == pos.get("sell_quantity", 0)
-                    ).first()
+    return event
 
-                    # Skip creating trades from positions if we already have direct trades
-                    # Only create if we have no trades at all for this symbol today
-                    if not existing_closed_trade and kite_trades is None or len(kite_trades) == 0:
-                        # Only create trades from positions if direct trades are not available
-                        logger.info(f"Creating trade records from closed position: {pos.get('tradingsymbol')}")
+@app.get("/api/events", tags=["Events"])
+async def list_events(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    event_type: Optional[str] = None,
+    is_completed: Optional[bool] = None,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    List events with optional filters
+    """
+    from models import Event, EventType
+    from datetime import datetime
 
-                        # Buy trade
-                        if pos.get("buy_quantity", 0) > 0:
-                            buy_trade = Trade(
-                                user_id=user.id,
-                                symbol=pos.get("tradingsymbol"),
-                                exchange=pos.get("exchange"),
-                                trade_type="BUY",
-                                order_type="MARKET",
-                                quantity=pos.get("buy_quantity"),
-                                price=pos.get("buy_price", 0),
-                                total_cost=pos.get("buy_value", 0),
-                                trade_date=datetime.now()
-                            )
-                            db.add(buy_trade)
+    query = db.query(Event)
 
-                        # Sell trade
-                        if pos.get("sell_quantity", 0) > 0:
-                            sell_trade = Trade(
-                                user_id=user.id,
-                                symbol=pos.get("tradingsymbol"),
-                                exchange=pos.get("exchange"),
-                                trade_type="SELL",
-                                order_type="MARKET",
-                                quantity=pos.get("sell_quantity"),
-                                price=pos.get("sell_price", 0),
-                                total_cost=pos.get("sell_value", 0),
-                                actual_exit_price=pos.get("sell_price", 0),
-                                trade_date=datetime.now()
-                            )
-                            db.add(sell_trade)
+    # Employees only see events they created
+    if current_user.role == UserRole.EMPLOYEE:
+        query = query.filter(Event.created_by_id == current_user.id)
 
-                        closed_positions_synced += 1
-                    else:
-                        logger.info(f"Skipping position trade creation for {pos.get('tradingsymbol')} - direct trades already exist")
+    # Filter by date range
+    if start_date:
+        start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+        query = query.filter(Event.start_time >= start_dt)
 
-            db.commit()
+    if end_date:
+        end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+        query = query.filter(Event.start_time <= end_dt)
 
-    holdings_synced = len(kite_holdings) if kite_holdings else 0
+    # Filter by event type
+    if event_type:
+        try:
+            event_type_enum = EventType(event_type)
+            query = query.filter(Event.event_type == event_type_enum)
+        except ValueError:
+            pass
+
+    # Filter by completion status
+    if is_completed is not None:
+        query = query.filter(Event.is_completed == is_completed)
+
+    events = query.order_by(Event.start_time.desc()).all()
+    return events
+
+@app.get("/api/events/upcoming", response_model=List[schemas.EventResponse], tags=["Events"])
+async def get_upcoming_events(
+    days: int = 7,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get upcoming events for the next N days
+    """
+    from models import Event
+    from datetime import datetime, timedelta
+
+    now = datetime.utcnow()
+    end_date = now + timedelta(days=days)
+
+    query = db.query(Event).filter(
+        Event.start_time >= now,
+        Event.start_time <= end_date,
+        Event.is_completed == False
+    )
+
+    # Employees only see their events
+    if current_user.role == UserRole.EMPLOYEE:
+        query = query.filter(Event.created_by_id == current_user.id)
+
+    events = query.order_by(Event.start_time.asc()).all()
+    return events
+
+@app.get("/api/events/{event_id}", response_model=schemas.EventResponse, tags=["Events"])
+async def get_event(
+    event_id: int,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get event details by ID
+    """
+    from models import Event
+
+    event = db.query(Event).filter(Event.id == event_id).first()
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found"
+        )
+
+    # Employees can only view their own events
+    if current_user.role == UserRole.EMPLOYEE:
+        if event.created_by_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have access to this event"
+            )
+
+    return event
+
+@app.put("/api/events/{event_id}", response_model=schemas.EventResponse, tags=["Events"])
+async def update_event(
+    event_id: int,
+    event_data: schemas.EventUpdate,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Update event details
+    """
+    from models import Event, EventParticipant, Customer
+
+    event = db.query(Event).filter(Event.id == event_id).first()
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found"
+        )
+
+    # Only creator or admin can update
+    if current_user.role == UserRole.EMPLOYEE:
+        if event.created_by_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only update your own events"
+            )
+
+    # Update basic fields
+    update_data = event_data.dict(exclude_unset=True, exclude={'participant_ids'})
+    for field, value in update_data.items():
+        if value is not None:
+            setattr(event, field, value)
+
+    # Update participants if provided
+    if event_data.participant_ids is not None:
+        # Remove existing participants
+        db.query(EventParticipant).filter(EventParticipant.event_id == event_id).delete()
+
+        # Add new participants
+        for customer_id in event_data.participant_ids:
+            participant = EventParticipant(
+                event_id=event_id,
+                customer_id=customer_id
+            )
+            db.add(participant)
+
+    db.commit()
+    db.refresh(event)
+
+    # Log activity
+    auth.log_activity(
+        db=db,
+        entity_type="event",
+        entity_id=event.id,
+        action="updated",
+        description=f"{current_user.full_name} updated event: {event.title}",
+        user_id=current_user.id
+    )
+
+    return event
+
+@app.delete("/api/events/{event_id}", tags=["Events"])
+async def delete_event(
+    event_id: int,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete an event
+    """
+    from models import Event
+
+    event = db.query(Event).filter(Event.id == event_id).first()
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found"
+        )
+
+    # Only creator or admin can delete
+    if current_user.role == UserRole.EMPLOYEE:
+        if event.created_by_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only delete your own events"
+            )
+
+    event_title = event.title
+
+    # Log activity before deletion
+    auth.log_activity(
+        db=db,
+        entity_type="event",
+        entity_id=event.id,
+        action="deleted",
+        description=f"{current_user.full_name} deleted event: {event_title}",
+        user_id=current_user.id
+    )
+
+    db.delete(event)
+    db.commit()
+
+    return {"message": "Event deleted successfully"}
+
+@app.post("/api/events/{event_id}/complete", tags=["Events"])
+async def mark_event_completed(
+    event_id: int,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Mark an event as completed
+    """
+    from models import Event
+
+    event = db.query(Event).filter(Event.id == event_id).first()
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found"
+        )
+
+    event.is_completed = True
+    db.commit()
+
+    # Log activity
+    auth.log_activity(
+        db=db,
+        entity_type="event",
+        entity_id=event.id,
+        action="completed",
+        description=f"{current_user.full_name} marked event as completed: {event.title}",
+        user_id=current_user.id
+    )
+
+    return {"message": "Event marked as completed"}
+
+@app.get("/api/calendar/month/{year}/{month}", tags=["Calendar"])
+async def get_calendar_month(
+    year: int,
+    month: int,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all events for a specific month (for calendar view)
+    """
+    from models import Event
+    from datetime import datetime
+    from calendar import monthrange
+
+    # Get first and last day of month
+    first_day = datetime(year, month, 1)
+    last_day_num = monthrange(year, month)[1]
+    last_day = datetime(year, month, last_day_num, 23, 59, 59)
+
+    query = db.query(Event).filter(
+        Event.start_time >= first_day,
+        Event.start_time <= last_day
+    )
+
+    # Employees only see their events
+    if current_user.role == UserRole.EMPLOYEE:
+        query = query.filter(Event.created_by_id == current_user.id)
+
+    events = query.order_by(Event.start_time.asc()).all()
+
+    # Group events by day
+    events_by_day = {}
+    for event in events:
+        day = event.start_time.day
+        if day not in events_by_day:
+            events_by_day[day] = []
+        events_by_day[day].append(event)
 
     return {
-        "message": f"Portfolio synced successfully. Holdings: {holdings_synced}, Trades: {trades_synced}, Closed Positions: {closed_positions_synced}.{positions_info}",
-        "details": {
-            "holdings_synced": holdings_synced,
-            "trades_synced": trades_synced,
-            "closed_positions_synced": closed_positions_synced,
-            "positions_available": bool(positions and positions.get("day")),
-            "note": "Today's buy orders will appear in holdings tomorrow (T+1 settlement)"
+        "year": year,
+        "month": month,
+        "events_by_day": events_by_day,
+        "total_events": len(events)
+    }
+
+# ============================================================================
+# DOCUMENT MANAGEMENT
+# ============================================================================
+
+@app.post("/api/documents/upload", response_model=schemas.DocumentResponse, tags=["Documents"])
+async def upload_document(
+    customer_id: int = Form(...),
+    document_name: str = Form(...),
+    document_category: DocumentCategory = Form(...),
+    description: Optional[str] = Form(None),
+    file: UploadFile = File(...),
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Upload a document for a customer
+
+    - **customer_id**: ID of the customer
+    - **document_name**: Name/title of the document
+    - **document_category**: Category (KYC, AGREEMENT, BANK_DETAILS, INVESTMENT_PROOF, OTHER)
+    - **description**: Optional description
+    - **file**: File to upload
+    """
+    from models import Customer, ActivityLog
+
+    # Check if customer exists
+    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+
+    # RBAC: Employees can only upload for their customers
+    if current_user.role == UserRole.EMPLOYEE and customer.relationship_manager_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to upload documents for this customer")
+
+    # Create uploads directory if it doesn't exist
+    upload_dir = Path("uploads") / str(customer_id)
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    # Generate unique filename
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    file_extension = Path(file.filename).suffix
+    safe_filename = f"{timestamp}_{file.filename}"
+    file_path = upload_dir / safe_filename
+
+    # Save file
+    try:
+        with file_path.open("wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    except Exception as e:
+        logger.error(f"Error saving file: {e}")
+        raise HTTPException(status_code=500, detail="Error saving file")
+
+    # Get file size
+    file_size = file_path.stat().st_size
+
+    # Create document record
+    document = Document(
+        customer_id=customer_id,
+        document_name=document_name,
+        document_category=document_category,
+        description=description,
+        file_path=str(file_path),
+        file_size=file_size,
+        mime_type=file.content_type,
+        storage_type="local"
+    )
+
+    db.add(document)
+
+    # Log activity
+    activity = ActivityLog(
+        user_id=current_user.id,
+        entity_type="customer",
+        entity_id=customer_id,
+        action="document_upload",
+        description=f"Uploaded document: {document_name} ({document_category.value})"
+    )
+    db.add(activity)
+
+    db.commit()
+    db.refresh(document)
+
+    logger.info(f"Document uploaded: {document.id} for customer {customer_id}")
+    return document
+
+
+@app.get("/api/customers/{customer_id}/documents", response_model=List[schemas.DocumentResponse], tags=["Documents"])
+def get_customer_documents(
+    customer_id: int,
+    document_category: Optional[DocumentCategory] = None,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all documents for a customer
+
+    - **customer_id**: ID of the customer
+    - **document_category**: Optional filter by category
+    """
+    from models import Customer
+
+    # Check if customer exists
+    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+
+    # RBAC: Employees can only view their customers' documents
+    if current_user.role == UserRole.EMPLOYEE and customer.relationship_manager_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to view this customer's documents")
+
+    # Query documents
+    query = db.query(Document).filter(Document.customer_id == customer_id)
+
+    if document_category:
+        query = query.filter(Document.document_category == document_category)
+
+    documents = query.order_by(Document.uploaded_at.desc()).all()
+    return documents
+
+
+@app.get("/api/documents/{document_id}", response_model=schemas.DocumentResponse, tags=["Documents"])
+def get_document_details(
+    document_id: int,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get details of a specific document"""
+    from models import Customer
+
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # RBAC: Check access
+    customer = db.query(Customer).filter(Customer.id == document.customer_id).first()
+    if current_user.role == UserRole.EMPLOYEE and customer.relationship_manager_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to view this document")
+
+    return document
+
+
+@app.get("/api/documents/{document_id}/download", tags=["Documents"])
+def download_document(
+    document_id: int,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Download a document file"""
+    from models import Customer
+
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # RBAC: Check access
+    customer = db.query(Customer).filter(Customer.id == document.customer_id).first()
+    if current_user.role == UserRole.EMPLOYEE and customer.relationship_manager_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to download this document")
+
+    # Check if file exists
+    file_path = Path(document.file_path)
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found on server")
+
+    return FileResponse(
+        path=str(file_path),
+        filename=document.document_name + Path(document.file_path).suffix,
+        media_type=document.mime_type
+    )
+
+
+@app.put("/api/documents/{document_id}", response_model=schemas.DocumentResponse, tags=["Documents"])
+def update_document_metadata(
+    document_id: int,
+    document_name: Optional[str] = None,
+    description: Optional[str] = None,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update document metadata (name and description only)"""
+    from models import Customer, ActivityLog
+
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # RBAC: Check access
+    customer = db.query(Customer).filter(Customer.id == document.customer_id).first()
+    if current_user.role == UserRole.EMPLOYEE and customer.relationship_manager_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to update this document")
+
+    # Update fields
+    if document_name:
+        document.document_name = document_name
+    if description is not None:
+        document.description = description
+
+    # Log activity
+    activity = ActivityLog(
+        user_id=current_user.id,
+        entity_type="customer",
+        entity_id=document.customer_id,
+        action="document_update",
+        description=f"Updated document: {document.document_name}"
+    )
+    db.add(activity)
+
+    db.commit()
+    db.refresh(document)
+
+    return document
+
+
+@app.delete("/api/documents/{document_id}", tags=["Documents"])
+def delete_document(
+    document_id: int,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete a document (Admin only)"""
+    from models import Customer, ActivityLog
+
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # Only admins can delete documents
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Only admins can delete documents")
+
+    # Delete file from storage
+    try:
+        file_path = Path(document.file_path)
+        if file_path.exists():
+            file_path.unlink()
+    except Exception as e:
+        logger.warning(f"Could not delete file: {e}")
+
+    # Log activity
+    activity = ActivityLog(
+        user_id=current_user.id,
+        entity_type="customer",
+        entity_id=document.customer_id,
+        action="document_delete",
+        description=f"Deleted document: {document.document_name} ({document.document_category.value})"
+    )
+    db.add(activity)
+
+    # Delete document record
+    db.delete(document)
+    db.commit()
+
+    return {"message": "Document deleted successfully"}
+
+# ============================================================================
+# COMMISSION MANAGEMENT
+# ============================================================================
+
+@app.post("/api/commissions", response_model=schemas.CommissionResponse, tags=["Commissions"])
+def create_commission(
+    commission: schemas.CommissionCreate,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Create a commission record
+
+    - **customer_id**: ID of the customer
+    - **investment_id**: Optional ID of related investment
+    - **commission_type**: Type (Upfront, Trail, Advisory Fee, etc.)
+    - **amount**: Commission amount
+    - **percentage**: Optional percentage
+    - **earned_date**: Date commission was earned
+    """
+    from models import Customer, ActivityLog
+
+    # Check if customer exists
+    customer = db.query(Customer).filter(Customer.id == commission.customer_id).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+
+    # RBAC: Employees can only create for their customers
+    if current_user.role == UserRole.EMPLOYEE and customer.relationship_manager_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to create commission for this customer")
+
+    # Create commission
+    db_commission = Commission(**commission.dict())
+    db.add(db_commission)
+
+    # Log activity
+    activity = ActivityLog(
+        user_id=current_user.id,
+        entity_type="customer",
+        entity_id=commission.customer_id,
+        action="commission_created",
+        description=f"Created commission: {commission.commission_type} - ₹{commission.amount:,.2f}"
+    )
+    db.add(activity)
+
+    db.commit()
+    db.refresh(db_commission)
+
+    logger.info(f"Commission created: {db_commission.id} for customer {commission.customer_id}")
+    return db_commission
+
+
+@app.get("/api/commissions", response_model=List[schemas.CommissionResponse], tags=["Commissions"])
+def list_commissions(
+    customer_id: Optional[int] = None,
+    is_paid: Optional[bool] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 100,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    List all commissions with optional filtering
+
+    - **customer_id**: Filter by customer
+    - **is_paid**: Filter by payment status
+    - **start_date**: Filter from this date (YYYY-MM-DD)
+    - **end_date**: Filter to this date (YYYY-MM-DD)
+    """
+    from models import Customer
+    from datetime import datetime
+
+    query = db.query(Commission)
+
+    # RBAC: Employees see only their customers' commissions
+    if current_user.role == UserRole.EMPLOYEE:
+        customer_ids = db.query(Customer.id).filter(
+            Customer.relationship_manager_id == current_user.id
+        ).all()
+        customer_ids = [cid[0] for cid in customer_ids]
+        query = query.filter(Commission.customer_id.in_(customer_ids))
+
+    # Apply filters
+    if customer_id:
+        query = query.filter(Commission.customer_id == customer_id)
+
+    if is_paid is not None:
+        query = query.filter(Commission.is_paid == is_paid)
+
+    if start_date:
+        query = query.filter(Commission.earned_date >= datetime.strptime(start_date, "%Y-%m-%d").date())
+
+    if end_date:
+        query = query.filter(Commission.earned_date <= datetime.strptime(end_date, "%Y-%m-%d").date())
+
+    commissions = query.order_by(Commission.earned_date.desc()).offset(skip).limit(limit).all()
+    return commissions
+
+
+@app.get("/api/commissions/{commission_id}", response_model=schemas.CommissionResponse, tags=["Commissions"])
+def get_commission(
+    commission_id: int,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get commission details"""
+    from models import Customer
+
+    commission = db.query(Commission).filter(Commission.id == commission_id).first()
+    if not commission:
+        raise HTTPException(status_code=404, detail="Commission not found")
+
+    # RBAC: Check access
+    customer = db.query(Customer).filter(Customer.id == commission.customer_id).first()
+    if current_user.role == UserRole.EMPLOYEE and customer.relationship_manager_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to view this commission")
+
+    return commission
+
+
+@app.put("/api/commissions/{commission_id}", response_model=schemas.CommissionResponse, tags=["Commissions"])
+def update_commission(
+    commission_id: int,
+    commission_update: schemas.CommissionUpdate,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update commission (mark as paid, add payment date, notes)"""
+    from models import Customer, ActivityLog
+
+    commission = db.query(Commission).filter(Commission.id == commission_id).first()
+    if not commission:
+        raise HTTPException(status_code=404, detail="Commission not found")
+
+    # RBAC: Check access
+    customer = db.query(Customer).filter(Customer.id == commission.customer_id).first()
+    if current_user.role == UserRole.EMPLOYEE and customer.relationship_manager_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to update this commission")
+
+    # Update fields
+    update_data = commission_update.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(commission, field, value)
+
+    # Log activity if marked as paid
+    if commission_update.is_paid and not commission.is_paid:
+        activity = ActivityLog(
+            user_id=current_user.id,
+            entity_type="customer",
+            entity_id=commission.customer_id,
+            action="commission_paid",
+            description=f"Marked commission as paid: {commission.commission_type} - ₹{commission.amount:,.2f}"
+        )
+        db.add(activity)
+
+    db.commit()
+    db.refresh(commission)
+
+    return commission
+
+
+@app.delete("/api/commissions/{commission_id}", tags=["Commissions"])
+def delete_commission(
+    commission_id: int,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete commission (Admin only)"""
+    from models import ActivityLog
+
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Only admins can delete commissions")
+
+    commission = db.query(Commission).filter(Commission.id == commission_id).first()
+    if not commission:
+        raise HTTPException(status_code=404, detail="Commission not found")
+
+    # Log activity
+    activity = ActivityLog(
+        user_id=current_user.id,
+        entity_type="customer",
+        entity_id=commission.customer_id,
+        action="commission_deleted",
+        description=f"Deleted commission: {commission.commission_type} - ₹{commission.amount:,.2f}"
+    )
+    db.add(activity)
+
+    db.delete(commission)
+    db.commit()
+
+    return {"message": "Commission deleted successfully"}
+
+# ============================================================================
+# INVOICE MANAGEMENT
+# ============================================================================
+
+def generate_invoice_number(db: Session) -> str:
+    """Generate unique invoice number in format INV-YYYYMM-XXXX"""
+    from datetime import datetime
+
+    now = datetime.now()
+    prefix = f"INV-{now.strftime('%Y%m')}"
+
+    # Get count of invoices this month
+    latest = db.query(Invoice).filter(
+        Invoice.invoice_number.like(f"{prefix}%")
+    ).order_by(Invoice.invoice_number.desc()).first()
+
+    if latest:
+        # Extract number and increment
+        last_num = int(latest.invoice_number.split('-')[-1])
+        new_num = last_num + 1
+    else:
+        new_num = 1
+
+    return f"{prefix}-{new_num:04d}"
+
+
+@app.post("/api/invoices", response_model=schemas.InvoiceResponse, tags=["Invoices"])
+def create_invoice(
+    invoice: schemas.InvoiceCreate,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Create an invoice with auto-generated invoice number
+
+    - **customer_id**: ID of the customer
+    - **invoice_date**: Date of invoice
+    - **due_date**: Payment due date
+    - **line_items**: List of invoice line items
+    - **subtotal**: Subtotal amount
+    - **tax_amount**: Tax amount
+    - **total_amount**: Total amount
+    """
+    from models import Customer, ActivityLog
+
+    # Check if customer exists
+    customer = db.query(Customer).filter(Customer.id == invoice.customer_id).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+
+    # RBAC: Employees can only create for their customers
+    if current_user.role == UserRole.EMPLOYEE and customer.relationship_manager_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to create invoice for this customer")
+
+    # Generate invoice number
+    invoice_number = generate_invoice_number(db)
+
+    # Create invoice
+    invoice_data = invoice.dict()
+    invoice_data['invoice_number'] = invoice_number
+    invoice_data['status'] = InvoiceStatus.DRAFT
+
+    db_invoice = Invoice(**invoice_data)
+    db.add(db_invoice)
+
+    # Log activity
+    activity = ActivityLog(
+        user_id=current_user.id,
+        entity_type="customer",
+        entity_id=invoice.customer_id,
+        action="invoice_created",
+        description=f"Created invoice {invoice_number} for ₹{invoice.total_amount:,.2f}"
+    )
+    db.add(activity)
+
+    db.commit()
+    db.refresh(db_invoice)
+
+    logger.info(f"Invoice created: {invoice_number} for customer {invoice.customer_id}")
+    return db_invoice
+
+
+@app.get("/api/invoices", response_model=List[schemas.InvoiceResponse], tags=["Invoices"])
+def list_invoices(
+    customer_id: Optional[int] = None,
+    status: Optional[InvoiceStatus] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 100,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    List all invoices with optional filtering
+
+    - **customer_id**: Filter by customer
+    - **status**: Filter by invoice status
+    - **start_date**: Filter from this date (YYYY-MM-DD)
+    - **end_date**: Filter to this date (YYYY-MM-DD)
+    """
+    from models import Customer
+    from datetime import datetime
+
+    query = db.query(Invoice)
+
+    # RBAC: Employees see only their customers' invoices
+    if current_user.role == UserRole.EMPLOYEE:
+        customer_ids = db.query(Customer.id).filter(
+            Customer.relationship_manager_id == current_user.id
+        ).all()
+        customer_ids = [cid[0] for cid in customer_ids]
+        query = query.filter(Invoice.customer_id.in_(customer_ids))
+
+    # Apply filters
+    if customer_id:
+        query = query.filter(Invoice.customer_id == customer_id)
+
+    if status:
+        query = query.filter(Invoice.status == status)
+
+    if start_date:
+        query = query.filter(Invoice.invoice_date >= datetime.strptime(start_date, "%Y-%m-%d").date())
+
+    if end_date:
+        query = query.filter(Invoice.invoice_date <= datetime.strptime(end_date, "%Y-%m-%d").date())
+
+    invoices = query.order_by(Invoice.invoice_date.desc()).offset(skip).limit(limit).all()
+    return invoices
+
+
+@app.get("/api/invoices/{invoice_id}", response_model=schemas.InvoiceResponse, tags=["Invoices"])
+def get_invoice(
+    invoice_id: int,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get invoice details"""
+    from models import Customer
+
+    invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    # RBAC: Check access
+    customer = db.query(Customer).filter(Customer.id == invoice.customer_id).first()
+    if current_user.role == UserRole.EMPLOYEE and customer.relationship_manager_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to view this invoice")
+
+    return invoice
+
+
+@app.put("/api/invoices/{invoice_id}", response_model=schemas.InvoiceResponse, tags=["Invoices"])
+def update_invoice(
+    invoice_id: int,
+    invoice_update: schemas.InvoiceUpdate,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update invoice (status, payment info)"""
+    from models import Customer, ActivityLog
+
+    invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    # RBAC: Check access
+    customer = db.query(Customer).filter(Customer.id == invoice.customer_id).first()
+    if current_user.role == UserRole.EMPLOYEE and customer.relationship_manager_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to update this invoice")
+
+    # Update fields
+    update_data = invoice_update.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(invoice, field, value)
+
+    # Log activity if status changed
+    if invoice_update.status:
+        activity = ActivityLog(
+            user_id=current_user.id,
+            entity_type="customer",
+            entity_id=invoice.customer_id,
+            action="invoice_updated",
+            description=f"Updated invoice {invoice.invoice_number} status to {invoice_update.status.value}"
+        )
+        db.add(activity)
+
+    db.commit()
+    db.refresh(invoice)
+
+    return invoice
+
+
+@app.post("/api/invoices/{invoice_id}/mark-paid", response_model=schemas.InvoiceResponse, tags=["Invoices"])
+def mark_invoice_paid(
+    invoice_id: int,
+    payment_date: Optional[str] = None,
+    payment_method: Optional[str] = None,
+    payment_reference: Optional[str] = None,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Mark invoice as paid"""
+    from models import Customer, ActivityLog
+    from datetime import datetime
+
+    invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    # RBAC: Check access
+    customer = db.query(Customer).filter(Customer.id == invoice.customer_id).first()
+    if current_user.role == UserRole.EMPLOYEE and customer.relationship_manager_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to update this invoice")
+
+    # Update invoice
+    invoice.status = InvoiceStatus.PAID
+    invoice.paid_amount = invoice.total_amount
+    invoice.payment_date = datetime.strptime(payment_date, "%Y-%m-%d").date() if payment_date else datetime.now().date()
+
+    if payment_method:
+        invoice.payment_method = payment_method
+    if payment_reference:
+        invoice.payment_reference = payment_reference
+
+    # Log activity
+    activity = ActivityLog(
+        user_id=current_user.id,
+        entity_type="customer",
+        entity_id=invoice.customer_id,
+        action="invoice_paid",
+        description=f"Marked invoice {invoice.invoice_number} as paid - ₹{invoice.total_amount:,.2f}"
+    )
+    db.add(activity)
+
+    db.commit()
+    db.refresh(invoice)
+
+    return invoice
+
+
+@app.post("/api/invoices/{invoice_id}/send", response_model=schemas.InvoiceResponse, tags=["Invoices"])
+def send_invoice(
+    invoice_id: int,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Mark invoice as sent"""
+    from models import Customer, ActivityLog
+
+    invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    # RBAC: Check access
+    customer = db.query(Customer).filter(Customer.id == invoice.customer_id).first()
+    if current_user.role == UserRole.EMPLOYEE and customer.relationship_manager_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to send this invoice")
+
+    # Update status
+    invoice.status = InvoiceStatus.SENT
+
+    # Log activity
+    activity = ActivityLog(
+        user_id=current_user.id,
+        entity_type="customer",
+        entity_id=invoice.customer_id,
+        action="invoice_sent",
+        description=f"Sent invoice {invoice.invoice_number} to customer"
+    )
+    db.add(activity)
+
+    db.commit()
+    db.refresh(invoice)
+
+    return invoice
+
+
+@app.delete("/api/invoices/{invoice_id}", tags=["Invoices"])
+def delete_invoice(
+    invoice_id: int,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete invoice (Admin only)"""
+    from models import ActivityLog
+
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Only admins can delete invoices")
+
+    invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    # Log activity
+    activity = ActivityLog(
+        user_id=current_user.id,
+        entity_type="customer",
+        entity_id=invoice.customer_id,
+        action="invoice_deleted",
+        description=f"Deleted invoice {invoice.invoice_number}"
+    )
+    db.add(activity)
+
+    db.delete(invoice)
+    db.commit()
+
+    return {"message": "Invoice deleted successfully"}
+
+
+@app.get("/api/invoices/{invoice_id}/pdf", tags=["Invoices"])
+def download_invoice_pdf(
+    invoice_id: int,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Generate and download invoice PDF"""
+    from models import Customer
+    from invoice_pdf_service import pdf_generator
+
+    invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    # RBAC: Check access
+    customer = db.query(Customer).filter(Customer.id == invoice.customer_id).first()
+    if current_user.role == UserRole.EMPLOYEE and customer.relationship_manager_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to download this invoice")
+
+    # Create invoices directory if it doesn't exist
+    pdf_dir = Path("invoices")
+    pdf_dir.mkdir(exist_ok=True)
+
+    # Generate PDF
+    pdf_filename = f"{invoice.invoice_number}.pdf"
+    pdf_path = pdf_dir / pdf_filename
+
+    try:
+        pdf_generator.generate_invoice_pdf(invoice, customer, str(pdf_path))
+
+        return FileResponse(
+            path=str(pdf_path),
+            filename=pdf_filename,
+            media_type='application/pdf'
+        )
+    except Exception as e:
+        logger.error(f"Error generating PDF: {e}")
+        raise HTTPException(status_code=500, detail="Error generating invoice PDF")
+
+# ============================================================================
+# REPORTS & ANALYTICS
+# ============================================================================
+
+@app.get("/api/reports/commission-summary", tags=["Reports"])
+def get_commission_summary(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    customer_id: Optional[int] = None,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get commission summary report
+
+    - **start_date**: Filter from this date (YYYY-MM-DD)
+    - **end_date**: Filter to this date (YYYY-MM-DD)
+    - **customer_id**: Filter by customer
+    """
+    from models import Customer
+    from datetime import datetime
+    from sqlalchemy import func
+
+    query = db.query(Commission)
+
+    # RBAC: Employees see only their customers' commissions
+    if current_user.role == UserRole.EMPLOYEE:
+        customer_ids = db.query(Customer.id).filter(
+            Customer.relationship_manager_id == current_user.id
+        ).all()
+        customer_ids = [cid[0] for cid in customer_ids]
+        query = query.filter(Commission.customer_id.in_(customer_ids))
+
+    # Apply filters
+    if customer_id:
+        query = query.filter(Commission.customer_id == customer_id)
+
+    if start_date:
+        query = query.filter(Commission.earned_date >= datetime.strptime(start_date, "%Y-%m-%d").date())
+
+    if end_date:
+        query = query.filter(Commission.earned_date <= datetime.strptime(end_date, "%Y-%m-%d").date())
+
+    # Get all commissions
+    commissions = query.all()
+
+    # Calculate summary
+    total_commissions = len(commissions)
+    total_amount = sum(c.amount for c in commissions)
+    paid_amount = sum(c.amount for c in commissions if c.is_paid)
+    pending_amount = total_amount - paid_amount
+    paid_count = len([c for c in commissions if c.is_paid])
+    pending_count = total_commissions - paid_count
+
+    # Group by commission type
+    by_type = {}
+    for commission in commissions:
+        comm_type = commission.commission_type
+        if comm_type not in by_type:
+            by_type[comm_type] = {
+                "count": 0,
+                "total_amount": 0,
+                "paid_amount": 0
+            }
+        by_type[comm_type]["count"] += 1
+        by_type[comm_type]["total_amount"] += commission.amount
+        if commission.is_paid:
+            by_type[comm_type]["paid_amount"] += commission.amount
+
+    return {
+        "summary": {
+            "total_commissions": total_commissions,
+            "total_amount": round(total_amount, 2),
+            "paid_amount": round(paid_amount, 2),
+            "pending_amount": round(pending_amount, 2),
+            "paid_count": paid_count,
+            "pending_count": pending_count
+        },
+        "by_type": by_type,
+        "filters": {
+            "start_date": start_date,
+            "end_date": end_date,
+            "customer_id": customer_id
         }
     }
 
-# Debug endpoint to check raw Kite data
-@app.get("/api/debug/kite-raw")
-async def debug_kite_raw(db: Session = Depends(get_db)):
-    """Debug endpoint to see raw Kite API responses"""
-    user = db.query(User).filter(User.id == 1).first()
 
-    if not user or not user.kite_access_token:
-        return {"error": "Kite not connected"}
+@app.get("/api/dashboard/stats", tags=["Dashboard"])
+def get_dashboard_stats(
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get comprehensive dashboard statistics
 
-    # Initialize Kite
-    kite_service.initialize(user.kite_access_token)
+    Returns:
+    - Customer metrics (total, active, prospective)
+    - Investment metrics (total value, count)
+    - Commission metrics (total, paid, pending)
+    - Invoice metrics (total revenue, outstanding)
+    - Recent activities
+    - Upcoming events
+    """
+    from models import Customer, Investment, Event, ActivityLog, Notification
+    from datetime import datetime, timedelta
+    from sqlalchemy import func
 
-    try:
-        # Get raw data from Kite APIs
-        raw_holdings = kite_service.get_holdings()
-        raw_trades = kite_service.get_trades()
-        raw_positions = kite_service.get_positions()  # This might show today's positions
+    # RBAC: Get customer scope
+    if current_user.role == UserRole.EMPLOYEE:
+        customer_filter = Customer.relationship_manager_id == current_user.id
+    else:
+        customer_filter = True  # Admin sees all
 
-        return {
-            "holdings_count": len(raw_holdings) if raw_holdings else 0,
-            "holdings_sample": raw_holdings[:2] if raw_holdings else [],
-            "trades_count": len(raw_trades) if raw_trades else 0,
-            "trades_sample": raw_trades[:2] if raw_trades else [],
-            "positions": raw_positions if raw_positions else {},
-            "debug_info": {
-                "user_id": user.kite_user_id,
-                "access_token_exists": bool(user.kite_access_token),
-                "kite_service_initialized": bool(kite_service.kite)
-            }
-        }
-    except Exception as e:
-        return {"error": str(e), "debug_info": "Failed to fetch Kite data"}
+    # Customer Metrics
+    total_customers = db.query(func.count(Customer.id)).filter(customer_filter).scalar()
+    active_customers = db.query(func.count(Customer.id)).filter(
+        customer_filter, Customer.status == "ACTIVE"
+    ).scalar()
+    prospective_customers = db.query(func.count(Customer.id)).filter(
+        customer_filter, Customer.status == "PROSPECTIVE"
+    ).scalar()
 
-# Cleanup endpoint to remove duplicate trades
-@app.post("/api/cleanup-duplicate-trades")
-async def cleanup_duplicate_trades(db: Session = Depends(get_db)):
-    """Remove duplicate trades that might have been created during sync"""
-    try:
-        # Get all trades grouped by symbol, trade_type, quantity, and date
-        trades = db.query(Trade).filter(Trade.user_id == 1).all()
+    # Investment Metrics
+    if current_user.role == UserRole.EMPLOYEE:
+        customer_ids = db.query(Customer.id).filter(customer_filter).all()
+        customer_ids = [cid[0] for cid in customer_ids]
+        investment_filter = Investment.customer_id.in_(customer_ids)
+    else:
+        investment_filter = True
 
-        duplicates_removed = 0
-        trade_groups = {}
+    total_investments = db.query(func.count(Investment.id)).filter(investment_filter).scalar()
+    total_invested = db.query(func.sum(Investment.invested_amount)).filter(investment_filter).scalar() or 0
+    total_current_value = db.query(func.sum(Investment.current_value)).filter(investment_filter).scalar() or 0
 
-        # Group trades by key characteristics
-        for trade in trades:
-            key = (trade.symbol, trade.trade_type, trade.quantity, trade.trade_date.date())
-            if key not in trade_groups:
-                trade_groups[key] = []
-            trade_groups[key].append(trade)
+    # Commission Metrics
+    commission_query = db.query(Commission)
+    if current_user.role == UserRole.EMPLOYEE:
+        commission_query = commission_query.filter(Commission.customer_id.in_(customer_ids))
 
-        # Remove duplicates (keep the first one, remove the rest)
-        for key, group in trade_groups.items():
-            if len(group) > 1:
-                # Sort by created_at and keep the first one
-                group.sort(key=lambda x: x.created_at if x.created_at else datetime.min)
-                for duplicate in group[1:]:  # Remove all except the first
-                    db.delete(duplicate)
-                    duplicates_removed += 1
-                    logger.info(f"Removed duplicate trade: {duplicate.symbol} {duplicate.trade_type} {duplicate.quantity}")
+    total_commissions = db.query(func.sum(Commission.amount)).filter(
+        commission_query.whereclause if commission_query.whereclause is not None else True
+    ).scalar() or 0
+    paid_commissions = db.query(func.sum(Commission.amount)).filter(
+        commission_query.whereclause if commission_query.whereclause is not None else True,
+        Commission.is_paid == True
+    ).scalar() or 0
+    pending_commissions = total_commissions - paid_commissions
 
-        db.commit()
+    # Invoice Metrics
+    invoice_query = db.query(Invoice)
+    if current_user.role == UserRole.EMPLOYEE:
+        invoice_query = invoice_query.filter(Invoice.customer_id.in_(customer_ids))
 
-        return {
-            "message": f"Cleanup completed. Removed {duplicates_removed} duplicate trades.",
-            "duplicates_removed": duplicates_removed,
-            "unique_trades_remaining": len(trade_groups)
-        }
+    total_invoices = db.query(func.count(Invoice.id)).filter(
+        invoice_query.whereclause if invoice_query.whereclause is not None else True
+    ).scalar()
+    total_revenue = db.query(func.sum(Invoice.total_amount)).filter(
+        invoice_query.whereclause if invoice_query.whereclause is not None else True
+    ).scalar() or 0
+    paid_revenue = db.query(func.sum(Invoice.paid_amount)).filter(
+        invoice_query.whereclause if invoice_query.whereclause is not None else True
+    ).scalar() or 0
+    outstanding_revenue = total_revenue - paid_revenue
 
-    except Exception as e:
-        logger.error(f"Error during cleanup: {e}")
-        return {"error": str(e)}
+    # Recent Activities (last 10)
+    activity_query = db.query(ActivityLog)
+    if current_user.role == UserRole.EMPLOYEE:
+        activity_query = activity_query.filter(
+            ActivityLog.user_id == current_user.id
+        )
+    recent_activities = activity_query.order_by(ActivityLog.created_at.desc()).limit(10).all()
 
-# Debug endpoint to check database status
-@app.get("/api/debug/database-status")
-async def debug_database_status(db: Session = Depends(get_db)):
-    """Check current database status and potential duplications"""
-    try:
-        # Count trades by date and type
-        trades = db.query(Trade).filter(Trade.user_id == 1).all()
-        holdings = db.query(Holding).filter(Holding.user_id == 1).all()
+    # Upcoming Events (next 7 days)
+    event_query = db.query(Event).filter(
+        Event.start_time >= datetime.now(),
+        Event.start_time <= datetime.now() + timedelta(days=7)
+    )
+    if current_user.role == UserRole.EMPLOYEE:
+        event_query = event_query.filter(Event.created_by == current_user.id)
+    upcoming_events = event_query.order_by(Event.start_time).limit(5).all()
 
-        trade_summary = {}
-        for trade in trades:
-            date_key = trade.trade_date.date() if trade.trade_date else "unknown"
-            if date_key not in trade_summary:
-                trade_summary[date_key] = {"BUY": 0, "SELL": 0, "total": 0}
-            trade_summary[date_key][trade.trade_type] += 1
-            trade_summary[date_key]["total"] += 1
-
-        # Check for potential duplicates
-        duplicate_analysis = {}
-        for trade in trades:
-            key = f"{trade.symbol}_{trade.trade_type}_{trade.quantity}_{trade.trade_date.date() if trade.trade_date else 'unknown'}"
-            if key not in duplicate_analysis:
-                duplicate_analysis[key] = 0
-            duplicate_analysis[key] += 1
-
-        potential_duplicates = {k: v for k, v in duplicate_analysis.items() if v > 1}
-
-        return {
-            "total_trades": len(trades),
-            "total_holdings": len(holdings),
-            "trades_by_date": trade_summary,
-            "potential_duplicates": potential_duplicates,
-            "duplicate_count": sum(v - 1 for v in potential_duplicates.values()),
-            "trade_details": [
-                {
-                    "id": t.id,
-                    "symbol": t.symbol,
-                    "type": t.trade_type,
-                    "quantity": t.quantity,
-                    "price": t.price,
-                    "total_cost": t.total_cost,
-                    "date": t.trade_date.isoformat() if t.trade_date else None,
-                    "zerodha_trade_id": t.zerodha_trade_id
-                } for t in trades
-            ]
-        }
-
-    except Exception as e:
-        return {"error": str(e)}
-
-# Get account balance/net worth from Kite
-@app.get("/api/account-balance")
-async def get_account_balance(db: Session = Depends(get_db)):
-    """Get account balance and margins from Kite"""
-    user = db.query(User).filter(User.id == 1).first()
-    if not user or not user.kite_access_token:
-        return {"error": "Kite not connected"}
-
-    kite_service.initialize(user.kite_access_token)
-    try:
-        margins = kite_service.get_margins()
-        if margins:
-            # Extract key balance information
-            equity = margins.get("equity", {})
-            return {
-                "available_cash": equity.get("available", {}).get("cash", 0),
-                "opening_balance": equity.get("available", {}).get("opening_balance", 0),
-                "net_worth": equity.get("net", 0),
-                "margins": margins
-            }
-        return {"error": "Could not fetch account balance"}
-    except Exception as e:
-        return {"error": str(e)}
-
-# Merge trades based on date, security, and price
-@app.post("/api/merge-trades")
-async def merge_trades(db: Session = Depends(get_db)):
-    """Merge trades with same date, symbol, and price into consolidated trades"""
-    try:
-        # First, remove any exact duplicates (same zerodha_trade_id)
-        all_trades = db.query(Trade).filter(Trade.user_id == 1).all()
-
-        # Group by zerodha_trade_id to find exact duplicates
-        trade_groups = {}
-        for trade in all_trades:
-            if trade.zerodha_trade_id:
-                if trade.zerodha_trade_id not in trade_groups:
-                    trade_groups[trade.zerodha_trade_id] = []
-                trade_groups[trade.zerodha_trade_id].append(trade)
-
-        # Remove exact duplicates (keep first, delete rest)
-        duplicates_removed = 0
-        for trade_id, trades in trade_groups.items():
-            if len(trades) > 1:
-                # Keep the first trade, delete the rest
-                for duplicate_trade in trades[1:]:
-                    db.delete(duplicate_trade)
-                    duplicates_removed += 1
-
-        db.commit()
-
-        # Now get updated list for merging
-        all_trades = db.query(Trade).filter(Trade.user_id == 1).all()
-
-        # Group trades by date, symbol, trade_type, and price for merging
-        merge_groups = {}
-        for trade in all_trades:
-            trade_date_str = trade.trade_date.date().isoformat() if trade.trade_date else "no_date"
-            # Round price to 2 decimal places for grouping
-            price_rounded = round(trade.price, 2)
-            merge_key = f"{trade_date_str}_{trade.symbol}_{trade.trade_type}_{price_rounded}"
-
-            if merge_key not in merge_groups:
-                merge_groups[merge_key] = []
-            merge_groups[merge_key].append(trade)
-
-        # Merge trades within each group
-        merged_count = 0
-        trades_before = len(all_trades)
-
-        for merge_key, trades in merge_groups.items():
-            if len(trades) > 1:
-                # Sort by trade time to keep the earliest
-                trades.sort(key=lambda t: t.trade_date if t.trade_date else datetime.min)
-                master_trade = trades[0]
-
-                # Merge quantities and costs
-                total_quantity = sum(t.quantity for t in trades)
-                total_cost = sum(t.total_cost for t in trades)
-                total_brokerage = sum(t.brokerage or 0 for t in trades)
-                total_taxes = sum(t.taxes or 0 for t in trades)
-
-                # Calculate weighted average price
-                weighted_price = total_cost / total_quantity if total_quantity > 0 else master_trade.price
-
-                # Update the master trade
-                master_trade.quantity = total_quantity
-                master_trade.price = round(weighted_price, 2)
-                master_trade.total_cost = total_cost
-                master_trade.brokerage = total_brokerage
-                master_trade.taxes = total_taxes
-
-                # Collect trade IDs for reference
-                merged_trade_ids = [str(t.id) for t in trades[1:]]
-
-                # Delete the other trades
-                for trade_to_delete in trades[1:]:
-                    db.delete(trade_to_delete)
-                    merged_count += 1
-
-        db.commit()
-
-        # Get final count
-        final_trades = db.query(Trade).filter(Trade.user_id == 1).all()
-        trades_after = len(final_trades)
-
-        return {
-            "success": True,
-            "duplicates_removed": duplicates_removed,
-            "trades_merged": merged_count,
-            "trades_before": trades_before,
-            "trades_after": trades_after,
-            "reduction": trades_before - trades_after,
-            "message": f"Removed {duplicates_removed} duplicates and merged {merged_count} trades. Total trades reduced from {trades_before} to {trades_after}."
-        }
-
-    except Exception as e:
-        db.rollback()
-        return {"error": str(e)}
-
-# Debug database connection and persistence
-@app.get("/api/debug-database-connection")
-async def debug_database_connection(db: Session = Depends(get_db)):
-    """Debug database connection and persistence issues"""
-    try:
-        import os
-        from database import SQLALCHEMY_DATABASE_URL
-
-        # Get environment info
-        database_url = os.getenv("DATABASE_URL", "Not set")
-
-        # Check if database URL is pointing to the same database
-        database_info = {
-            "database_url_env": database_url,
-            "sqlalchemy_url": SQLALCHEMY_DATABASE_URL,
-            "url_type": "postgresql" if "postgres" in database_url.lower() else "sqlite" if "sqlite" in database_url.lower() else "unknown"
-        }
-
-        # Check current user and token status
-        user = db.query(User).filter(User.id == 1).first()
-        user_info = {
-            "user_exists": user is not None,
-            "user_id": user.id if user else None,
-            "username": user.username if user else None,
-            "has_kite_token": bool(user.kite_access_token) if user else False,
-            "token_preview": user.kite_access_token[:10] + "..." if user and user.kite_access_token else None
-        }
-
-        # Check table existence
-        from sqlalchemy import inspect
-        inspector = inspect(db.bind)
-        table_names = inspector.get_table_names()
-
-        # Count records in key tables
-        record_counts = {}
-        if 'users' in table_names:
-            record_counts['users'] = db.query(User).count()
-        if 'trades' in table_names:
-            record_counts['trades'] = db.query(Trade).count()
-        if 'holdings' in table_names:
-            record_counts['holdings'] = db.query(Holding).count()
-
-        return {
-            "database_info": database_info,
-            "user_info": user_info,
-            "tables": table_names,
-            "record_counts": record_counts,
-            "diagnosis": {
-                "persistent_db": "postgresql" in database_url.lower(),
-                "potential_issue": "Database URL changes between deployments" if "sqlite" in database_url.lower() else "Database connection or Railway service restart"
-            }
-        }
-
-    except Exception as e:
-        return {"error": str(e)}
-
-# Explicit database management endpoints
-@app.post("/api/admin/clear-trades")
-async def clear_trades_only(confirm: bool = False, db: Session = Depends(get_db)):
-    """Explicitly clear only trades data (keeping user and tokens)"""
-    if not confirm:
-        return {"error": "Add ?confirm=true to confirm deletion of all trades"}
-
-    try:
-        # Delete trades and holdings but keep user and tokens
-        trades_deleted = db.query(Trade).delete()
-        holdings_deleted = db.query(Holding).delete()
-        journals_deleted = db.query(JournalEntry).delete()
-
-        db.commit()
-
-        return {
-            "success": True,
-            "message": "Cleared trades data only, preserved user and Kite tokens",
-            "deleted": {
-                "trades": trades_deleted,
-                "holdings": holdings_deleted,
-                "journals": journals_deleted
-            }
-        }
-    except Exception as e:
-        db.rollback()
-        return {"error": str(e)}
-
-@app.post("/api/admin/clear-all-data")
-async def clear_all_data(confirm: bool = False, db: Session = Depends(get_db)):
-    """Explicitly clear ALL data including users (dangerous!)"""
-    if not confirm:
-        return {"error": "Add ?confirm=true to confirm deletion of ALL data including users and tokens"}
-
-    try:
-        # Delete everything
-        trades_deleted = db.query(Trade).delete()
-        holdings_deleted = db.query(Holding).delete()
-        journals_deleted = db.query(JournalEntry).delete()
-        users_deleted = db.query(User).delete()
-
-        db.commit()
-
-        return {
-            "success": True,
-            "message": "Cleared ALL data including users and tokens",
-            "deleted": {
-                "trades": trades_deleted,
-                "holdings": holdings_deleted,
-                "journals": journals_deleted,
-                "users": users_deleted
-            }
-        }
-    except Exception as e:
-        db.rollback()
-        return {"error": str(e)}
-
-# Debug performance calculation step by step
-@app.get("/api/debug-performance-calculation")
-async def debug_performance_calculation(db: Session = Depends(get_db)):
-    """Debug performance calculation step by step"""
-    calculator = PerformanceCalculator(db, user_id=1)
-
-    # Get raw performance from calculator only
-    raw_metrics = calculator.calculate_portfolio_metrics("ALL")
-
-    # Check what today's P&L would be
-    today_pnl_data = {"today_realized": 0, "today_unrealized": 0, "stored_pnl": 0}
-
-    # Check stored trades P&L
-    today = date.today()
-    today_trades = db.query(Trade).filter(
-        Trade.user_id == 1,
-        Trade.trade_date >= today
-    ).all()
-
-    if today_trades:
-        buy_total = sum(t.total_cost for t in today_trades if t.trade_type == TradeType.BUY)
-        sell_total = sum(t.quantity * t.price - t.brokerage - t.taxes
-                        for t in today_trades if t.trade_type == TradeType.SELL)
-        today_pnl_data["stored_pnl"] = sell_total - buy_total
+    # Unread Notifications
+    unread_notifications = db.query(func.count(Notification.id)).filter(
+        Notification.user_id == current_user.id,
+        Notification.is_read == False
+    ).scalar()
 
     return {
-        "raw_calculator_metrics": raw_metrics,
-        "today_pnl_data": today_pnl_data,
-        "analysis": {
-            "total_investment": raw_metrics.get("total_investment", 0),
-            "current_value": raw_metrics.get("current_value", 0),
-            "realized_pnl": raw_metrics.get("realized_pnl", 0),
-            "absolute_returns": raw_metrics.get("absolute_returns", 0),
-            "formula_check": f"realized_pnl + (current_value - total_investment) = {raw_metrics.get('realized_pnl', 0)} + ({raw_metrics.get('current_value', 0)} - {raw_metrics.get('total_investment', 0)}) = {raw_metrics.get('realized_pnl', 0) + (raw_metrics.get('current_value', 0) - raw_metrics.get('total_investment', 0))}"
+        "customers": {
+            "total": total_customers,
+            "active": active_customers,
+            "prospective": prospective_customers,
+            "inactive": total_customers - active_customers - prospective_customers
+        },
+        "investments": {
+            "total_count": total_investments,
+            "total_invested": round(total_invested, 2),
+            "total_current_value": round(total_current_value, 2),
+            "total_returns": round(total_current_value - total_invested, 2),
+            "return_percentage": round(((total_current_value - total_invested) / total_invested * 100) if total_invested > 0 else 0, 2)
+        },
+        "commissions": {
+            "total": round(total_commissions, 2),
+            "paid": round(paid_commissions, 2),
+            "pending": round(pending_commissions, 2)
+        },
+        "invoices": {
+            "total_count": total_invoices,
+            "total_revenue": round(total_revenue, 2),
+            "paid_revenue": round(paid_revenue, 2),
+            "outstanding_revenue": round(outstanding_revenue, 2)
+        },
+        "recent_activities": [
+            {
+                "id": activity.id,
+                "action": activity.action,
+                "description": activity.description,
+                "created_at": activity.created_at.isoformat()
+            }
+            for activity in recent_activities
+        ],
+        "upcoming_events": [
+            {
+                "id": event.id,
+                "title": event.title,
+                "start_time": event.start_time.isoformat(),
+                "event_type": event.event_type
+            }
+            for event in upcoming_events
+        ],
+        "notifications": {
+            "unread_count": unread_notifications
         }
     }
 
-# Test endpoint to demonstrate performance with today's P&L
-@app.get("/api/test-performance-with-pnl")
-async def test_performance_with_pnl(db: Session = Depends(get_db)):
-    """Demo endpoint showing how performance would look with today's realized P&L"""
-    calculator = PerformanceCalculator(db, user_id=1)
-    metrics = calculator.calculate_portfolio_metrics("ALL")
 
-    # Simulate today's trading data
-    simulated_realized = 219.75  # From test squared positions
-    simulated_unrealized = 45.60  # From open position
+@app.get("/api/reports/revenue", tags=["Reports"])
+def get_revenue_report(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get revenue report from invoices
 
-    # Add simulated today's P&L to metrics
-    metrics["today_pnl"] = simulated_realized + simulated_unrealized
-    metrics["today_realized"] = simulated_realized
-    metrics["today_unrealized"] = simulated_unrealized
+    - **start_date**: Filter from this date (YYYY-MM-DD)
+    - **end_date**: Filter to this date (YYYY-MM-DD)
+    """
+    from models import Customer
+    from datetime import datetime
 
-    # Update total returns to include today's P&L
-    original_returns = metrics.get("absolute_returns", 0)
-    metrics["absolute_returns"] = original_returns + simulated_realized + simulated_unrealized
+    query = db.query(Invoice)
 
-    # Recalculate percentage returns if we have investment
-    total_investment = metrics.get("total_investment", 0)
-    if total_investment == 0:
-        # For demo purposes, assume some investment
-        total_investment = 50000  # Assume 50k investment
-        metrics["total_investment"] = total_investment
-        metrics["current_value"] = total_investment + metrics["absolute_returns"]
+    # RBAC: Employees see only their customers' invoices
+    if current_user.role == UserRole.EMPLOYEE:
+        customer_ids = db.query(Customer.id).filter(
+            Customer.relationship_manager_id == current_user.id
+        ).all()
+        customer_ids = [cid[0] for cid in customer_ids]
+        query = query.filter(Invoice.customer_id.in_(customer_ids))
 
-    if total_investment > 0:
-        metrics["percentage_returns"] = (metrics["absolute_returns"] / total_investment) * 100
+    # Apply filters
+    if start_date:
+        query = query.filter(Invoice.invoice_date >= datetime.strptime(start_date, "%Y-%m-%d").date())
+
+    if end_date:
+        query = query.filter(Invoice.invoice_date <= datetime.strptime(end_date, "%Y-%m-%d").date())
+
+    # Get all invoices
+    invoices = query.all()
+
+    # Calculate summary
+    total_invoices = len(invoices)
+    total_revenue = sum(i.total_amount for i in invoices)
+    paid_revenue = sum(i.paid_amount for i in invoices)
+    outstanding_revenue = total_revenue - paid_revenue
+
+    # Group by status
+    by_status = {}
+    for invoice in invoices:
+        status = invoice.status.value
+        if status not in by_status:
+            by_status[status] = {
+                "count": 0,
+                "total_amount": 0
+            }
+        by_status[status]["count"] += 1
+        by_status[status]["total_amount"] += invoice.total_amount
+
+    # Calculate tax collected
+    total_tax = sum(i.tax_amount for i in invoices)
 
     return {
-        **metrics,
-        "note": "This demo shows how performance would look with today's P&L included",
-        "demo_data": {
-            "original_returns": original_returns,
-            "todays_pnl": simulated_realized + simulated_unrealized,
-            "new_total_returns": metrics["absolute_returns"]
+        "summary": {
+            "total_invoices": total_invoices,
+            "total_revenue": round(total_revenue, 2),
+            "paid_revenue": round(paid_revenue, 2),
+            "outstanding_revenue": round(outstanding_revenue, 2),
+            "total_tax_collected": round(total_tax, 2)
+        },
+        "by_status": by_status,
+        "filters": {
+            "start_date": start_date,
+            "end_date": end_date
         }
     }
+
+
+@app.get("/api/reports/customer-acquisition", tags=["Reports"])
+def get_customer_acquisition_report(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Customer acquisition report
+
+    - **start_date**: Filter from this date (YYYY-MM-DD)
+    - **end_date**: Filter to this date (YYYY-MM-DD)
+    """
+    from models import Customer
+    from datetime import datetime
+    from collections import defaultdict
+
+    query = db.query(Customer)
+
+    # RBAC: Employees see only their customers
+    if current_user.role == UserRole.EMPLOYEE:
+        query = query.filter(Customer.relationship_manager_id == current_user.id)
+
+    # Apply filters
+    if start_date:
+        query = query.filter(Customer.created_at >= datetime.strptime(start_date, "%Y-%m-%d"))
+    if end_date:
+        query = query.filter(Customer.created_at <= datetime.strptime(end_date, "%Y-%m-%d"))
+
+    customers = query.all()
+
+    # Group by month
+    by_month = defaultdict(int)
+    by_status = defaultdict(int)
+    by_risk_profile = defaultdict(int)
+
+    for customer in customers:
+        month_key = customer.created_at.strftime("%Y-%m")
+        by_month[month_key] += 1
+        by_status[customer.status.value] += 1
+        if customer.risk_profile:
+            by_risk_profile[customer.risk_profile.value] += 1
+
+    return {
+        "summary": {
+            "total_customers": len(customers),
+            "by_month": dict(by_month),
+            "by_status": dict(by_status),
+            "by_risk_profile": dict(by_risk_profile)
+        },
+        "filters": {
+            "start_date": start_date,
+            "end_date": end_date
+        }
+    }
+
+
+@app.get("/api/reports/customer-portfolio", tags=["Reports"])
+def get_customer_portfolio_report(
+    limit: int = 10,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Customer portfolio analysis - Top customers by portfolio value
+    """
+    from models import Customer, Investment
+    from sqlalchemy import func
+
+    query = db.query(
+        Customer.id,
+        Customer.full_name,
+        Customer.email,
+        func.sum(Investment.current_value).label('total_value'),
+        func.count(Investment.id).label('investment_count')
+    ).join(Investment, Customer.id == Investment.customer_id)
+
+    # RBAC: Employees see only their customers
+    if current_user.role == UserRole.EMPLOYEE:
+        query = query.filter(Customer.relationship_manager_id == current_user.id)
+
+    top_customers = query.group_by(
+        Customer.id, Customer.full_name, Customer.email
+    ).order_by(func.sum(Investment.current_value).desc()).limit(limit).all()
+
+    # Calculate average portfolio size
+    all_portfolios = db.query(func.sum(Investment.current_value)).join(
+        Customer, Customer.id == Investment.customer_id
+    )
+    if current_user.role == UserRole.EMPLOYEE:
+        all_portfolios = all_portfolios.filter(Customer.relationship_manager_id == current_user.id)
+
+    total_value = all_portfolios.scalar() or 0
+    customer_count = db.query(func.count(func.distinct(Investment.customer_id))).filter(
+        Investment.customer_id.in_(
+            db.query(Customer.id).filter(
+                Customer.relationship_manager_id == current_user.id if current_user.role == UserRole.EMPLOYEE else True
+            )
+        )
+    ).scalar() or 1
+
+    return {
+        "top_customers": [
+            {
+                "customer_id": c.id,
+                "name": c.full_name,
+                "email": c.email,
+                "total_portfolio_value": round(c.total_value or 0, 2),
+                "investment_count": c.investment_count
+            }
+            for c in top_customers
+        ],
+        "summary": {
+            "average_portfolio_size": round(total_value / customer_count, 2),
+            "total_portfolio_value": round(total_value, 2),
+            "customers_with_investments": customer_count
+        }
+    }
+
+
+@app.get("/api/reports/investment-performance", tags=["Reports"])
+def get_investment_performance_report(
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Investment performance analysis"""
+    from models import Customer, Investment
+    from sqlalchemy import func
+
+    query = db.query(Investment).join(Customer, Customer.id == Investment.customer_id)
+
+    # RBAC: Employees see only their customers' investments
+    if current_user.role == UserRole.EMPLOYEE:
+        query = query.filter(Customer.relationship_manager_id == current_user.id)
+
+    investments = query.all()
+
+    # Calculate metrics
+    total_invested = sum(i.invested_amount for i in investments)
+    total_current = sum(i.current_value or i.invested_amount for i in investments)
+    total_returns = total_current - total_invested
+
+    # Group by category
+    by_category = {}
+    for inv in investments:
+        cat = inv.investment_type.value
+        if cat not in by_category:
+            by_category[cat] = {
+                "count": 0,
+                "invested": 0,
+                "current_value": 0,
+                "returns": 0
+            }
+        by_category[cat]["count"] += 1
+        by_category[cat]["invested"] += inv.invested_amount
+        by_category[cat]["current_value"] += inv.current_value or inv.invested_amount
+        by_category[cat]["returns"] += (inv.current_value or inv.invested_amount) - inv.invested_amount
+
+    # Calculate returns percentage for each category
+    for cat in by_category:
+        invested = by_category[cat]["invested"]
+        if invested > 0:
+            by_category[cat]["return_percentage"] = round(
+                (by_category[cat]["returns"] / invested * 100), 2
+            )
+        else:
+            by_category[cat]["return_percentage"] = 0
+
+    # Find best and worst performing
+    sorted_investments = sorted(
+        investments,
+        key=lambda x: ((x.current_value or x.invested_amount) - x.invested_amount) / x.invested_amount if x.invested_amount > 0 else 0,
+        reverse=True
+    )
+
+    best_performing = sorted_investments[:5] if len(sorted_investments) >= 5 else sorted_investments
+    worst_performing = sorted_investments[-5:] if len(sorted_investments) >= 5 else []
+
+    return {
+        "summary": {
+            "total_investments": len(investments),
+            "total_invested": round(total_invested, 2),
+            "total_current_value": round(total_current, 2),
+            "total_returns": round(total_returns, 2),
+            "overall_return_percentage": round((total_returns / total_invested * 100) if total_invested > 0 else 0, 2)
+        },
+        "by_category": by_category,
+        "best_performing": [
+            {
+                "investment_name": inv.investment_name,
+                "category": inv.investment_type.value,
+                "invested": inv.invested_amount,
+                "current_value": inv.current_value or inv.invested_amount,
+                "returns": (inv.current_value or inv.invested_amount) - inv.invested_amount,
+                "return_percentage": round(
+                    ((inv.current_value or inv.invested_amount) - inv.invested_amount) / inv.invested_amount * 100,
+                    2
+                ) if inv.invested_amount > 0 else 0
+            }
+            for inv in best_performing
+        ],
+        "worst_performing": [
+            {
+                "investment_name": inv.investment_name,
+                "category": inv.investment_type.value,
+                "invested": inv.invested_amount,
+                "current_value": inv.current_value or inv.invested_amount,
+                "returns": (inv.current_value or inv.invested_amount) - inv.invested_amount,
+                "return_percentage": round(
+                    ((inv.current_value or inv.invested_amount) - inv.invested_amount) / inv.invested_amount * 100,
+                    2
+                ) if inv.invested_amount > 0 else 0
+            }
+            for inv in worst_performing
+        ]
+    }
+
+
+@app.get("/api/reports/activity-summary", tags=["Reports"])
+def get_activity_summary(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Activity log summary and analytics"""
+    from models import ActivityLog
+    from datetime import datetime
+    from collections import defaultdict
+
+    query = db.query(ActivityLog)
+
+    # RBAC: Employees see only their activities
+    if current_user.role == UserRole.EMPLOYEE:
+        query = query.filter(ActivityLog.user_id == current_user.id)
+
+    # Apply filters
+    if start_date:
+        query = query.filter(ActivityLog.created_at >= datetime.strptime(start_date, "%Y-%m-%d"))
+    if end_date:
+        query = query.filter(ActivityLog.created_at <= datetime.strptime(end_date, "%Y-%m-%d"))
+
+    activities = query.all()
+
+    # Group by action
+    by_action = defaultdict(int)
+    by_entity_type = defaultdict(int)
+    by_date = defaultdict(int)
+
+    for activity in activities:
+        by_action[activity.action] += 1
+        by_entity_type[activity.entity_type] += 1
+        date_key = activity.created_at.strftime("%Y-%m-%d")
+        by_date[date_key] += 1
+
+    return {
+        "summary": {
+            "total_activities": len(activities),
+            "by_action": dict(by_action),
+            "by_entity_type": dict(by_entity_type),
+            "by_date": dict(sorted(by_date.items()))
+        },
+        "filters": {
+            "start_date": start_date,
+            "end_date": end_date
+        }
+    }
+
+# ============================================================================
+# EXCEL EXPORTS
+# ============================================================================
+
+@app.get("/api/exports/customers", tags=["Exports"])
+def export_customers_to_excel(
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Export customers to Excel file"""
+    from models import Customer
+    from export_service import excel_export_service
+
+    query = db.query(Customer)
+
+    # RBAC: Employees see only their customers
+    if current_user.role == UserRole.EMPLOYEE:
+        query = query.filter(Customer.relationship_manager_id == current_user.id)
+
+    customers = query.all()
+
+    # Create exports directory
+    export_dir = Path("exports")
+    export_dir.mkdir(exist_ok=True)
+
+    # Generate filename with timestamp
+    filename = f"customers_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    filepath = export_dir / filename
+
+    try:
+        excel_export_service.export_customers(customers, str(filepath))
+
+        return FileResponse(
+            path=str(filepath),
+            filename=filename,
+            media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    except Exception as e:
+        logger.error(f"Error exporting customers: {e}")
+        raise HTTPException(status_code=500, detail="Error exporting customers to Excel")
+
+
+@app.get("/api/exports/commissions", tags=["Exports"])
+def export_commissions_to_excel(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Export commissions to Excel file"""
+    from models import Customer
+    from export_service import excel_export_service
+
+    query = db.query(Commission)
+
+    # RBAC: Employees see only their customers' commissions
+    if current_user.role == UserRole.EMPLOYEE:
+        customer_ids = db.query(Customer.id).filter(
+            Customer.relationship_manager_id == current_user.id
+        ).all()
+        customer_ids = [cid[0] for cid in customer_ids]
+        query = query.filter(Commission.customer_id.in_(customer_ids))
+
+    # Apply filters
+    if start_date:
+        query = query.filter(Commission.earned_date >= datetime.strptime(start_date, "%Y-%m-%d").date())
+    if end_date:
+        query = query.filter(Commission.earned_date <= datetime.strptime(end_date, "%Y-%m-%d").date())
+
+    commissions = query.all()
+
+    # Create exports directory
+    export_dir = Path("exports")
+    export_dir.mkdir(exist_ok=True)
+
+    # Generate filename with timestamp
+    filename = f"commissions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    filepath = export_dir / filename
+
+    try:
+        excel_export_service.export_commissions(commissions, str(filepath))
+
+        return FileResponse(
+            path=str(filepath),
+            filename=filename,
+            media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    except Exception as e:
+        logger.error(f"Error exporting commissions: {e}")
+        raise HTTPException(status_code=500, detail="Error exporting commissions to Excel")
+
+
+@app.get("/api/exports/invoices", tags=["Exports"])
+def export_invoices_to_excel(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    status: Optional[InvoiceStatus] = None,
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Export invoices to Excel file"""
+    from models import Customer
+    from export_service import excel_export_service
+
+    query = db.query(Invoice)
+
+    # RBAC: Employees see only their customers' invoices
+    if current_user.role == UserRole.EMPLOYEE:
+        customer_ids = db.query(Customer.id).filter(
+            Customer.relationship_manager_id == current_user.id
+        ).all()
+        customer_ids = [cid[0] for cid in customer_ids]
+        query = query.filter(Invoice.customer_id.in_(customer_ids))
+
+    # Apply filters
+    if start_date:
+        query = query.filter(Invoice.invoice_date >= datetime.strptime(start_date, "%Y-%m-%d").date())
+    if end_date:
+        query = query.filter(Invoice.invoice_date <= datetime.strptime(end_date, "%Y-%m-%d").date())
+    if status:
+        query = query.filter(Invoice.status == status)
+
+    invoices = query.all()
+
+    # Create exports directory
+    export_dir = Path("exports")
+    export_dir.mkdir(exist_ok=True)
+
+    # Generate filename with timestamp
+    filename = f"invoices_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    filepath = export_dir / filename
+
+    try:
+        excel_export_service.export_invoices(invoices, str(filepath))
+
+        return FileResponse(
+            path=str(filepath),
+            filename=filename,
+            media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    except Exception as e:
+        logger.error(f"Error exporting invoices: {e}")
+        raise HTTPException(status_code=500, detail="Error exporting invoices to Excel")
+
+
+@app.get("/api/exports/investments", tags=["Exports"])
+def export_investments_to_excel(
+    current_user: User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Export investments to Excel file"""
+    from models import Customer, Investment
+    from export_service import excel_export_service
+
+    query = db.query(Investment).join(Customer, Customer.id == Investment.customer_id)
+
+    # RBAC: Employees see only their customers' investments
+    if current_user.role == UserRole.EMPLOYEE:
+        query = query.filter(Customer.relationship_manager_id == current_user.id)
+
+    investments = query.all()
+
+    # Create exports directory
+    export_dir = Path("exports")
+    export_dir.mkdir(exist_ok=True)
+
+    # Generate filename with timestamp
+    filename = f"investments_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    filepath = export_dir / filename
+
+    try:
+        excel_export_service.export_investments(investments, str(filepath))
+
+        return FileResponse(
+            path=str(filepath),
+            filename=filename,
+            media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    except Exception as e:
+        logger.error(f"Error exporting investments: {e}")
+        raise HTTPException(status_code=500, detail="Error exporting investments to Excel")
+
+# ============================================================================
+# WEB TEMPLATES / FRONTEND ROUTES
+# ============================================================================
+
+@app.get("/", response_class=HTMLResponse, tags=["Frontend"])
+async def root(request: Request):
+    """Root route - redirect to login or dashboard"""
+    return templates.TemplateResponse("auth/login.html", {"request": request})
+
+@app.get("/login", response_class=HTMLResponse, tags=["Frontend"])
+async def login_page(request: Request):
+    """Login page"""
+    return templates.TemplateResponse("auth/login.html", {"request": request})
+
+@app.get("/change-password", response_class=HTMLResponse, tags=["Frontend"])
+async def change_password_page(request: Request):
+    """Change password page (for temp passwords)"""
+    return templates.TemplateResponse("auth/change_password.html", {"request": request})
+
+@app.get("/dashboard", response_class=HTMLResponse, tags=["Frontend"])
+async def dashboard_page(request: Request):
+    """Main dashboard page"""
+    return templates.TemplateResponse("dashboard/index.html", {"request": request})
+
+@app.get("/customers", response_class=HTMLResponse, tags=["Frontend"])
+async def customers_list_page(request: Request):
+    """Customers list page"""
+    return templates.TemplateResponse("customers/list.html", {"request": request})
+
+@app.get("/customers/{customer_id}", response_class=HTMLResponse, tags=["Frontend"])
+async def customer_detail_page(request: Request, customer_id: int):
+    """Customer detail page"""
+    return templates.TemplateResponse("customers/detail.html", {"request": request, "customer_id": customer_id})
+
+@app.get("/customers/create", response_class=HTMLResponse, tags=["Frontend"])
+async def customer_create_page(request: Request):
+    """Create customer page"""
+    return templates.TemplateResponse("customers/create.html", {"request": request})
+
+@app.get("/customers/{customer_id}/edit", response_class=HTMLResponse, tags=["Frontend"])
+async def customer_edit_page(request: Request, customer_id: int):
+    """Edit customer page"""
+    return templates.TemplateResponse("customers/edit.html", {"request": request, "customer_id": customer_id})
+
+@app.get("/calendar", response_class=HTMLResponse, tags=["Frontend"])
+async def calendar_page(request: Request):
+    """Calendar and events page"""
+    return templates.TemplateResponse("calendar/index.html", {"request": request})
+
+@app.get("/documents", response_class=HTMLResponse, tags=["Frontend"])
+async def documents_page(request: Request):
+    """Documents management page"""
+    return templates.TemplateResponse("documents/index.html", {"request": request})
+
+@app.get("/billing/commissions", response_class=HTMLResponse, tags=["Frontend"])
+async def commissions_page(request: Request):
+    """Commissions page"""
+    return templates.TemplateResponse("billing/commissions.html", {"request": request})
+
+@app.get("/billing/invoices", response_class=HTMLResponse, tags=["Frontend"])
+async def invoices_page(request: Request):
+    """Invoices page"""
+    return templates.TemplateResponse("billing/invoices.html", {"request": request})
+
+@app.get("/reports", response_class=HTMLResponse, tags=["Frontend"])
+async def reports_page(request: Request):
+    """Reports and analytics page"""
+    return templates.TemplateResponse("reports/index.html", {"request": request})
+
+@app.get("/users", response_class=HTMLResponse, tags=["Frontend"])
+async def users_page(request: Request):
+    """User management page (Admin only)"""
+    return templates.TemplateResponse("users/index.html", {"request": request})
+
+# ============================================================================
+# ERROR HANDLERS
+# ============================================================================
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request, exc):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+    )
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request, exc):
+    logger.error(f"Unhandled exception: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+    )
+
+# ============================================================================
+# MAIN
+# ============================================================================
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(
+        "main:app",
+        host=settings.host,
+        port=settings.port,
+        reload=settings.debug
+    )
