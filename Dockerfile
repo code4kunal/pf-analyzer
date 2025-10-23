@@ -24,11 +24,8 @@ COPY . .
 # Create uploads directory
 RUN mkdir -p /app/uploads
 
-# Make startup script executable
-RUN chmod +x /app/start.sh
-
 # Expose port (Railway will set $PORT)
 EXPOSE 8000
 
-# Start command - use startup script for reliable PORT handling
-CMD ["/app/start.sh"]
+# Start command - use Python script for reliable PORT handling
+CMD ["python", "run.py"]
