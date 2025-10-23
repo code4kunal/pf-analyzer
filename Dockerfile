@@ -24,8 +24,11 @@ COPY . .
 # Create uploads directory
 RUN mkdir -p /app/uploads
 
+# Make startup script executable
+RUN chmod +x /app/start.sh
+
 # Expose port (Railway will set $PORT)
 EXPOSE 8000
 
-# Start command - use shell form for environment variable expansion
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Start command - use startup script for reliable PORT handling
+CMD ["/app/start.sh"]
