@@ -80,44 +80,57 @@ async def login(
     """
     Login endpoint - authenticate user and return JWT token
     """
-    # Authenticate user
-    user = auth.authenticate_user(db, login_data.email, login_data.password)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Bearer"},
+    try:
+        # Authenticate user
+        user = auth.authenticate_user(db, login_data.email, login_data.password)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect email or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        # Update last login
+        user.last_login = datetime.utcnow()
+        db.commit()
+
+        # Create access token
+        access_token = auth.create_access_token(
+            data={
+                "sub": user.email,
+                "user_id": user.id,
+                "role": user.role.value
+            }
         )
 
-    # Update last login
-    user.last_login = datetime.utcnow()
-    db.commit()
+        # Log activity
+        auth.log_activity(
+            db=db,
+            entity_type="user",
+            entity_id=user.id,
+            action="login",
+            description=f"{user.full_name} logged in",
+            user_id=user.id
+        )
 
-    # Create access token
-    access_token = auth.create_access_token(
-        data={
-            "sub": user.email,
-            "user_id": user.id,
-            "role": user.role.value
-        }
-    )
-
-    # Log activity
-    auth.log_activity(
-        db=db,
-        entity_type="user",
-        entity_id=user.id,
-        action="login",
-        description=f"{user.full_name} logged in",
-        user_id=user.id
-    )
-
-    return schemas.LoginResponse(
-        access_token=access_token,
-        token_type="bearer",
-        user=user,
-        is_temp_password=user.is_temp_password
-    )
+        return schemas.LoginResponse(
+            access_token=access_token,
+            token_type="bearer",
+            user=user,
+            is_temp_password=user.is_temp_password
+        )
+    except HTTPException:
+        # Re-raise HTTP exceptions (like 401 Unauthorized)
+        raise
+    except Exception as e:
+        # Log the actual error for debugging
+        import traceback
+        print(f"❌ Login error for {login_data.email}: {str(e)}", flush=True)
+        print(traceback.format_exc(), flush=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Login failed: {str(e)}"
+        )
 
 @app.post("/api/auth/change-password", tags=["Authentication"])
 async def change_password(

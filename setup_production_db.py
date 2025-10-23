@@ -13,8 +13,11 @@ from passlib.context import CryptContext
 # Import all models to ensure they're registered
 from models import Base, User, UserRole
 
-# Production database URL
-DATABASE_URL = "postgresql://postgres:kwCLLsrJOlntnfOeuSATILniOukLMcvS@centerbeam.proxy.rlwy.net:15296/railway"
+# Production database URL from environment (Railway sets this automatically)
+DATABASE_URL = os.environ.get(
+    "DATABASE_URL",
+    "postgresql://postgres:kwCLLsrJOlntnfOeuSATILniOukLMcvS@centerbeam.proxy.rlwy.net:15296/railway"
+)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
