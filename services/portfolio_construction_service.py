@@ -12,6 +12,180 @@ import math
 class PortfolioConstructionService:
     """Advanced portfolio construction with equity focus and MF risk cushion"""
 
+    # SEBI-Compliant Mandatory Disclosures
+    MANDATORY_DISCLOSURES = {
+        "market_risk": "Investments in securities market are subject to market risks. Read all related documents carefully before investing.",
+        "past_performance": "Past performance is not indicative of future returns. Returns may vary based on market conditions.",
+        "equity_disclaimer": "Direct equity investments carry higher risk and are subject to market volatility. The projected returns of 18-25% on equity are based on historical performance and active stock selection expertise. Actual returns may differ significantly.",
+        "no_guarantee": "Returns are not guaranteed and will depend on various factors including market conditions, economic factors, and stock selection.",
+        "mutual_fund_risk": "Mutual fund investments are subject to market risks. Please read all scheme-related documents carefully.",
+        "tax_disclaimer": "Tax benefits are subject to conditions under the Income Tax Act, 1961. Tax laws are subject to change. Please consult your tax advisor.",
+        "suitability": "This portfolio is designed based on your risk profile and investment goals. Please ensure you have adequate emergency funds and insurance coverage before investing.",
+        "professional_advice": "This is a model portfolio recommendation. Please consult with a SEBI-registered investment advisor for personalized advice."
+    }
+
+    # Suitability Assessment - Financial Foundation Check
+    @staticmethod
+    def assess_investment_suitability(client_data: Dict) -> Dict:
+        """
+        Check if client has proper financial foundation before investing
+
+        Explanation to clients:
+        "Before investing in markets, we need to ensure you have safety nets in place:
+        1. Emergency Fund: 6-12 months of expenses in liquid funds
+        2. Term Insurance: 15-20x your annual income
+        3. Health Insurance: Adequate family floater (₹10L minimum)
+        4. Debt Management: Monthly EMI should be <40% of income"
+        """
+
+        checks = {
+            "emergency_fund": {"status": "NOT_CHECKED", "message": ""},
+            "term_insurance": {"status": "NOT_CHECKED", "message": ""},
+            "health_insurance": {"status": "NOT_CHECKED", "message": ""},
+            "debt_ratio": {"status": "NOT_CHECKED", "message": ""},
+            "overall_suitable": True,
+            "recommendations": []
+        }
+
+        # 1. Emergency Fund Check
+        monthly_expenses = client_data.get("monthly_expenses", 0)
+        existing_liquid = client_data.get("emergency_fund", 0)
+
+        if monthly_expenses > 0:
+            required_emergency = monthly_expenses * 6  # 6 months minimum
+            recommended_emergency = monthly_expenses * 12  # 12 months ideal
+
+            if existing_liquid >= recommended_emergency:
+                checks["emergency_fund"]["status"] = "EXCELLENT"
+                checks["emergency_fund"]["message"] = f"Emergency fund adequate: ₹{existing_liquid:,.0f} (12+ months covered) ✓"
+            elif existing_liquid >= required_emergency:
+                checks["emergency_fund"]["status"] = "ADEQUATE"
+                checks["emergency_fund"]["message"] = f"Emergency fund present: ₹{existing_liquid:,.0f} (6-12 months) ✓"
+            else:
+                checks["emergency_fund"]["status"] = "INSUFFICIENT"
+                checks["emergency_fund"]["message"] = f"⚠️ Emergency fund low: ₹{existing_liquid:,.0f}. Need ₹{required_emergency:,.0f} minimum (6 months expenses)"
+                checks["overall_suitable"] = False
+                checks["recommendations"].append(f"Build emergency fund to ₹{required_emergency:,.0f} before equity investment")
+
+        # 2. Term Insurance Check
+        annual_income = client_data.get("annual_income", 0)
+        term_coverage = client_data.get("term_insurance_coverage", 0)
+
+        if annual_income > 0:
+            required_coverage = annual_income * 15  # 15x income minimum
+            recommended_coverage = annual_income * 20  # 20x income ideal
+
+            if term_coverage >= recommended_coverage:
+                checks["term_insurance"]["status"] = "EXCELLENT"
+                checks["term_insurance"]["message"] = f"Term insurance excellent: ₹{term_coverage:,.0f} (20x income) ✓"
+            elif term_coverage >= required_coverage:
+                checks["term_insurance"]["status"] = "ADEQUATE"
+                checks["term_insurance"]["message"] = f"Term insurance adequate: ₹{term_coverage:,.0f} (15-20x income) ✓"
+            else:
+                checks["term_insurance"]["status"] = "INSUFFICIENT"
+                checks["term_insurance"]["message"] = f"⚠️ Term insurance low: ₹{term_coverage:,.0f}. Need ₹{required_coverage:,.0f} minimum (15x income)"
+                checks["overall_suitable"] = False
+                checks["recommendations"].append(f"Increase term insurance to ₹{required_coverage:,.0f} before taking equity risk")
+
+        # 3. Health Insurance Check
+        family_size = client_data.get("family_members", 1)
+        health_coverage = client_data.get("health_insurance_coverage", 0)
+
+        required_health = max(500000, family_size * 500000)  # ₹5L per person minimum
+        recommended_health = max(1000000, family_size * 500000)  # ₹10L minimum or ₹5L per person
+
+        if health_coverage >= recommended_health:
+            checks["health_insurance"]["status"] = "EXCELLENT"
+            checks["health_insurance"]["message"] = f"Health insurance excellent: ₹{health_coverage:,.0f} ✓"
+        elif health_coverage >= required_health:
+            checks["health_insurance"]["status"] = "ADEQUATE"
+            checks["health_insurance"]["message"] = f"Health insurance adequate: ₹{health_coverage:,.0f} ✓"
+        else:
+            checks["health_insurance"]["status"] = "INSUFFICIENT"
+            checks["health_insurance"]["message"] = f"⚠️ Health insurance low: ₹{health_coverage:,.0f}. Need ₹{required_health:,.0f} minimum"
+            checks["recommendations"].append(f"Get health insurance of at least ₹{required_health:,.0f}")
+
+        # 4. Debt Ratio Check
+        monthly_income = client_data.get("monthly_income", 0)
+        monthly_emi = client_data.get("monthly_emi", 0)
+
+        if monthly_income > 0 and monthly_emi > 0:
+            debt_ratio = (monthly_emi / monthly_income) * 100
+
+            if debt_ratio < 30:
+                checks["debt_ratio"]["status"] = "EXCELLENT"
+                checks["debt_ratio"]["message"] = f"Debt ratio healthy: {debt_ratio:.1f}% (EMI/Income) ✓"
+            elif debt_ratio < 40:
+                checks["debt_ratio"]["status"] = "ACCEPTABLE"
+                checks["debt_ratio"]["message"] = f"Debt ratio acceptable: {debt_ratio:.1f}% (EMI/Income) ✓"
+            else:
+                checks["debt_ratio"]["status"] = "HIGH"
+                checks["debt_ratio"]["message"] = f"⚠️ Debt ratio high: {debt_ratio:.1f}% (EMI/Income). Should be <40%"
+                checks["recommendations"].append("Reduce debt burden before increasing investments")
+
+        # Final recommendation
+        if checks["overall_suitable"]:
+            checks["final_recommendation"] = "✓ You have a strong financial foundation. Ready to invest in equity markets."
+        else:
+            checks["final_recommendation"] = "⚠️ Please address the gaps in your financial foundation before investing heavily in equity. We can help you with a phased approach."
+
+        return checks
+
+    # Age-Based Equity Allocation Guidelines
+    # Rule: Younger investors can take more equity risk due to longer time horizon
+    @staticmethod
+    def calculate_age_adjusted_equity(age: int, risk_profile: str, timeline_years: int) -> Dict:
+        """
+        Calculate age-appropriate equity allocation
+
+        Logic explained to clients:
+        - Younger age (20-30): Can handle 70-80% equity (long recovery time)
+        - Middle age (30-50): 50-70% equity (balanced approach)
+        - Nearing retirement (50-60): 30-50% equity (capital preservation)
+        - Post-retirement (60+): 20-40% equity (income focus)
+
+        Modified by:
+        - Risk profile (Conservative reduces by 20%, Aggressive increases by 10%)
+        - Timeline (Short timeline reduces equity, long timeline allows more)
+        """
+        # Base allocation using "100 - age" rule
+        base_equity = min(100 - age, 85)  # Max 85% regardless of age
+
+        # Risk profile adjustment
+        RISK_ADJUSTMENTS = {
+            "CONSERVATIVE": 0.75,  # Reduce by 25%
+            "MODERATE": 0.95,      # Reduce by 5%
+            "AGGRESSIVE": 1.15     # Increase by 15%
+        }
+
+        adjusted_equity = base_equity * RISK_ADJUSTMENTS.get(risk_profile, 1.0)
+
+        # Timeline adjustment
+        if timeline_years < 3:
+            adjusted_equity *= 0.4  # Very short timeline - reduce significantly
+            recommendation = "Short timeline detected. Reducing equity allocation for capital safety."
+        elif timeline_years < 5:
+            adjusted_equity *= 0.7  # Short-medium timeline
+            recommendation = "Medium-short timeline. Balanced allocation recommended."
+        elif timeline_years >= 10:
+            adjusted_equity = min(adjusted_equity * 1.1, 85)  # Long timeline - can increase
+            recommendation = "Long investment horizon allows higher equity allocation."
+        else:
+            recommendation = "Standard allocation based on risk profile."
+
+        # Final bounds
+        final_equity = max(20, min(adjusted_equity, 85))  # Between 20-85%
+
+        return {
+            "recommended_equity": round(final_equity, 1),
+            "age_factor": age,
+            "base_allocation": round(base_equity, 1),
+            "risk_adjusted": round(adjusted_equity, 1),
+            "timeline_impact": timeline_years,
+            "recommendation": recommendation,
+            "explanation": f"For age {age} with {risk_profile} risk profile and {timeline_years}-year timeline: {round(final_equity, 1)}% equity recommended"
+        }
+
     # Asset allocation based on risk profile (Equity-focused strategy)
     RISK_ALLOCATIONS = {
         "CONSERVATIVE": {
@@ -269,22 +443,51 @@ class PortfolioConstructionService:
         """
         Calculate year-by-year projections with step-up
 
-        Expected CAGR by Risk Profile (minimum 3-4 years timeline):
-        - Conservative: 18% CAGR
-        - Moderate: 22% CAGR
-        - Aggressive: 25% CAGR
+        RETURN ASSUMPTIONS (Explained to clients):
+
+        DIRECT EQUITY (Our Expertise - 70-80% allocation):
+        - Conservative: 18% CAGR (Large-cap focused, quality stocks)
+        - Moderate: 22% CAGR (Balanced large/mid-cap, growth stocks)
+        - Aggressive: 25% CAGR (Multi-cap, high-growth opportunities)
+
+        MUTUAL FUNDS (Risk Cushion - 20-30% allocation):
+        - Debt Funds: 8-9% CAGR (Corporate bonds, short duration)
+        - Hybrid Funds: 10-12% CAGR (Balanced advantage, multi-asset)
+        - Gold Funds: 8-10% CAGR (Hedge against volatility)
+
+        BLENDED PORTFOLIO RETURN:
+        - Weighted average based on allocation
+        - Conservative: ~16% (35% equity at 18% + 55% MF at 9% + 10% cash at 6%)
+        - Moderate: ~18% (60% equity at 22% + 35% MF at 10% + 5% cash at 6%)
+        - Aggressive: ~21% (75% equity at 25% + 20% MF at 11% + 5% cash at 6%)
         """
 
-        # Portfolio expected returns based on risk profile
-        # These are blended returns accounting for equity + MF + cash allocation
-        PORTFOLIO_CAGR = {
-            "CONSERVATIVE": 0.18,  # 18% CAGR
-            "MODERATE": 0.22,      # 22% CAGR
-            "AGGRESSIVE": 0.25     # 25% CAGR
+        # Asset class expected returns (explained clearly to clients)
+        EQUITY_RETURNS = {
+            "CONSERVATIVE": 0.18,  # 18% - Direct equity (our expertise)
+            "MODERATE": 0.22,      # 22% - Direct equity
+            "AGGRESSIVE": 0.25     # 25% - Direct equity
         }
 
-        # Use risk-profile specific CAGR
-        blended_return = PORTFOLIO_CAGR.get(risk_profile, 0.20)  # Default 20% if not found
+        MF_RETURNS = {
+            "CONSERVATIVE": 0.09,  # 9% - Debt-heavy MF mix
+            "MODERATE": 0.10,      # 10% - Balanced MF mix
+            "AGGRESSIVE": 0.11     # 11% - Hybrid-heavy MF mix
+        }
+
+        CASH_RETURN = 0.06  # 6% - Liquid funds/savings
+
+        # Calculate blended return based on actual allocation
+        equity_return = EQUITY_RETURNS[risk_profile]
+        mf_return = MF_RETURNS[risk_profile]
+        mf_percent = 95 - equity_percent  # Remaining after equity (5% cash)
+
+        # Blended return = weighted average
+        blended_return = (
+            (equity_percent / 100) * equity_return +
+            (mf_percent / 100) * mf_return +
+            (5 / 100) * CASH_RETURN
+        )
 
         year_by_year = []
         total_invested = lumpsum
@@ -324,7 +527,17 @@ class PortfolioConstructionService:
             "total_invested": round(total_invested, 2),
             "total_gains": round(portfolio_value - total_invested, 2),
             "cagr": round(blended_return * 100, 2),
-            "year_by_year": year_by_year
+            "year_by_year": year_by_year,
+            "return_breakdown": {
+                "equity_return": round(equity_return * 100, 2),
+                "equity_allocation": equity_percent,
+                "mf_return": round(mf_return * 100, 2),
+                "mf_allocation": mf_percent,
+                "cash_return": round(CASH_RETURN * 100, 2),
+                "cash_allocation": 5,
+                "blended_return": round(blended_return * 100, 2),
+                "explanation": f"Blended Return = ({equity_percent}% × {round(equity_return*100,1)}%) + ({mf_percent}% × {round(mf_return*100,1)}%) + (5% × {round(CASH_RETURN*100,1)}%) = {round(blended_return*100,1)}%"
+            }
         }
 
     @staticmethod
@@ -364,6 +577,164 @@ class PortfolioConstructionService:
             "schedule": harvesting_schedule,
             "strategy": "Book ₹1.25L LTCG profit every 2 years (tax-free) and reinvest in new opportunities",
             "value_proposition": "This strategy saves tax, allows rebalancing, and exploits market opportunities"
+        }
+
+    @staticmethod
+    def calculate_scenario_projections(
+        monthly_sip: float,
+        lumpsum: float,
+        timeline_years: int,
+        equity_percent: float,
+        step_up_percent: float,
+        risk_profile: str
+    ) -> Dict:
+        """
+        Calculate 3 scenarios: Optimistic, Expected, Pessimistic
+
+        Client Explanation:
+        - EXPECTED: Based on our historical performance and market averages
+        - OPTIMISTIC: If markets perform well and stock picking excels (Best Case)
+        - PESSIMISTIC: If markets decline or face headwinds (Worst Case)
+
+        This gives you a realistic range of possible outcomes
+        """
+
+        # Get base returns
+        BASE_EQUITY_RETURNS = {
+            "CONSERVATIVE": 0.18,
+            "MODERATE": 0.22,
+            "AGGRESSIVE": 0.25
+        }
+
+        BASE_MF_RETURNS = {
+            "CONSERVATIVE": 0.09,
+            "MODERATE": 0.10,
+            "AGGRESSIVE": 0.11
+        }
+
+        base_equity = BASE_EQUITY_RETURNS[risk_profile]
+        base_mf = BASE_MF_RETURNS[risk_profile]
+
+        # Scenario multipliers
+        scenarios = {
+            "expected": {
+                "equity_multiplier": 1.0,
+                "mf_multiplier": 1.0,
+                "description": "Based on historical averages and our active management"
+            },
+            "optimistic": {
+                "equity_multiplier": 1.25,  # 25% higher (Bull market + excellent picks)
+                "mf_multiplier": 1.15,      # 15% higher
+                "description": "Strong bull market with excellent stock selection"
+            },
+            "pessimistic": {
+                "equity_multiplier": 0.65,  # 35% lower (Bear market/corrections)
+                "mf_multiplier": 0.85,      # 15% lower
+                "description": "Market corrections or bear phase"
+            }
+        }
+
+        results = {}
+
+        for scenario_name, scenario_data in scenarios.items():
+            # Adjusted returns
+            equity_return = base_equity * scenario_data["equity_multiplier"]
+            mf_return = base_mf * scenario_data["mf_multiplier"]
+            cash_return = 0.06  # Stays constant
+
+            mf_percent = 95 - equity_percent
+            blended_return = (
+                (equity_percent / 100) * equity_return +
+                (mf_percent / 100) * mf_return +
+                (5 / 100) * cash_return
+            )
+
+            # Calculate final value with this return
+            portfolio_value = lumpsum
+            total_invested = lumpsum
+            current_sip = monthly_sip
+
+            for year in range(1, timeline_years + 1):
+                annual_sip = current_sip * 12
+                total_invested += annual_sip
+
+                lumpsum_growth = portfolio_value * blended_return
+                sip_growth = annual_sip * (blended_return / 2)
+
+                portfolio_value += annual_sip + lumpsum_growth + sip_growth
+                current_sip = current_sip * (1 + step_up_percent / 100)
+
+            results[scenario_name] = {
+                "final_value": round(portfolio_value, 2),
+                "total_invested": round(total_invested, 2),
+                "total_gains": round(portfolio_value - total_invested, 2),
+                "cagr": round(blended_return * 100, 2),
+                "equity_return": round(equity_return * 100, 2),
+                "description": scenario_data["description"]
+            }
+
+        # Calculate range
+        value_range = results["optimistic"]["final_value"] - results["pessimistic"]["final_value"]
+
+        return {
+            "scenarios": results,
+            "range_analysis": {
+                "best_case": results["optimistic"]["final_value"],
+                "most_likely": results["expected"]["final_value"],
+                "worst_case": results["pessimistic"]["final_value"],
+                "range": round(value_range, 2),
+                "explanation": f"Your portfolio value can range from ₹{results['pessimistic']['final_value']:,.0f} to ₹{results['optimistic']['final_value']:,.0f}, with most likely outcome around ₹{results['expected']['final_value']:,.0f}"
+            }
+        }
+
+    @staticmethod
+    def generate_rebalancing_strategy(risk_profile: str, timeline_years: int) -> Dict:
+        """
+        Generate portfolio rebalancing recommendations
+
+        Explanation to clients:
+        - Markets move up and down, changing your asset allocation
+        - If equity grows too much, you're taking more risk than intended
+        - If equity falls, you're too conservative and missing growth
+        - Rebalancing = selling high, buying low automatically
+        """
+
+        if timeline_years < 3:
+            frequency = "Quarterly"
+            drift_tolerance = 3
+            explanation = "Short timeline requires close monitoring and frequent rebalancing"
+        elif timeline_years < 7:
+            frequency = "Semi-annually"
+            drift_tolerance = 5
+            explanation = "Medium timeline allows moderate drift before rebalancing"
+        else:
+            frequency = "Annually"
+            drift_tolerance = 7
+            explanation = "Long timeline allows more flexibility, review once a year"
+
+        target_allocation = PortfolioConstructionService.RISK_ALLOCATIONS[risk_profile]
+
+        return {
+            "frequency": frequency,
+            "drift_tolerance_percent": drift_tolerance,
+            "target_equity": target_allocation["equity"]["recommended"],
+            "target_mf": target_allocation["mutual_funds"]["recommended"],
+            "target_cash": target_allocation["cash"]["recommended"],
+            "rebalancing_triggers": [
+                f"Review portfolio {frequency.lower()}",
+                f"Rebalance if equity allocation drifts by >{drift_tolerance}%",
+                "Always rebalance during major market moves (>20% change)",
+                "Use tax-loss harvesting opportunities when rebalancing"
+            ],
+            "process": [
+                "1. Calculate current allocation (%)",
+                "2. Compare with target allocation",
+                f"3. If drift > {drift_tolerance}%, sell overweight and buy underweight",
+                "4. Use rebalancing to book profits and average down losses",
+                "5. Combine with tax harvesting for efficiency"
+            ],
+            "example": f"If equity grows to {target_allocation['equity']['recommended'] + drift_tolerance + 5}% (target: {target_allocation['equity']['recommended']}%), sell some equity and buy MF/debt to restore balance",
+            "benefit": "Rebalancing enforces discipline: 'Sell high, buy low' automatically without emotions"
         }
 
     @staticmethod
