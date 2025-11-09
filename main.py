@@ -3186,6 +3186,11 @@ async def public_questionnaire_page(request: Request, token: str):
     """Public questionnaire form (No auth required)"""
     return templates.TemplateResponse("questionnaire/public_form.html", {"request": request, "token": token})
 
+@app.get("/portfolio/presentation", response_class=HTMLResponse, tags=["Frontend"])
+async def portfolio_presentation_page(request: Request):
+    """Interactive portfolio presentation dashboard (Admin only)"""
+    return templates.TemplateResponse("portfolio/presentation.html", {"request": request})
+
 @app.get("/billing/commissions", response_class=HTMLResponse, tags=["Frontend"])
 async def commissions_page(request: Request):
     """Commissions page"""

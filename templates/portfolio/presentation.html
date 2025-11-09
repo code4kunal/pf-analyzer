@@ -1,0 +1,618 @@
+{% extends "components/base.html" %}
+
+{% block title %}Portfolio Presentation - GrowFolio CMS{% endblock %}
+
+{% block page_title %}Adaptive Portfolio Dashboard{% endblock %}
+
+{% block head %}
+<style>
+    .portfolio-card {
+        transition: all 0.3s ease;
+    }
+
+    .portfolio-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+    }
+
+    .slider-container {
+        margin: 20px 0;
+    }
+
+    .slider-value {
+        background: #1F4E78;
+        color: white;
+        padding: 5px 10px;
+        border-radius: 4px;
+        font-weight: bold;
+    }
+
+    input[type="range"] {
+        width: 100%;
+        height: 8px;
+        border-radius: 5px;
+        background: #d3d3d3;
+        outline: none;
+        -webkit-appearance: none;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        background: #1F4E78;
+        cursor: pointer;
+    }
+
+    input[type="range"]::-moz-range-thumb {
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        background: #1F4E78;
+        cursor: pointer;
+    }
+
+    .tax-harvesting-timeline {
+        position: relative;
+        padding: 20px 0;
+    }
+
+    .timeline-item {
+        position: relative;
+        padding-left: 40px;
+        padding-bottom: 20px;
+    }
+
+    .timeline-item::before {
+        content: '';
+        position: absolute;
+        left: 10px;
+        top: 0;
+        bottom: -20px;
+        width: 2px;
+        background: #e5e7eb;
+    }
+
+    .timeline-item::after {
+        content: '';
+        position: absolute;
+        left: 5px;
+        top: 5px;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: #10B981;
+        border: 2px solid white;
+        box-shadow: 0 0 0 2px #10B981;
+    }
+
+    .timeline-item:last-child::before {
+        display: none;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div x-data="portfolioDashboard()" x-init="init()">
+    <!-- Client Info Card -->
+    <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
+        <div class="flex justify-between items-center">
+            <div>
+                <h2 class="text-2xl font-bold text-gray-900" x-text="clientInfo.name"></h2>
+                <p class="text-gray-600">Risk Profile: <span class="font-semibold" x-text="clientInfo.risk_profile"></span></p>
+            </div>
+            <div class="text-right">
+                <button @click="generatePortfolios()"
+                        class="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                    <i class="fas fa-sync-alt mr-2"></i>Generate Portfolios
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Adaptive Sliders -->
+    <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
+        <h3 class="text-xl font-bold text-gray-900 mb-4">
+            <i class="fas fa-sliders-h text-blue-600 mr-2"></i>Adaptive Parameters
+        </h3>
+        <p class="text-sm text-gray-600 mb-6">Adjust parameters and see portfolio update in real-time</p>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Monthly SIP Slider -->
+            <div class="slider-container">
+                <div class="flex justify-between items-center mb-2">
+                    <label class="font-medium text-gray-700">Monthly SIP</label>
+                    <span class="slider-value" x-text="`₹${parameters.monthly_sip.toLocaleString('en-IN')}`"></span>
+                </div>
+                <input type="range"
+                       x-model="parameters.monthly_sip"
+                       @input="debounceGenerate()"
+                       min="5000" max="500000" step="5000">
+                <div class="flex justify-between text-xs text-gray-500 mt-1">
+                    <span>₹5K</span>
+                    <span>₹5L</span>
+                </div>
+            </div>
+
+            <!-- Lumpsum Slider -->
+            <div class="slider-container">
+                <div class="flex justify-between items-center mb-2">
+                    <label class="font-medium text-gray-700">Lumpsum Amount</label>
+                    <span class="slider-value" x-text="`₹${parameters.lumpsum.toLocaleString('en-IN')}`"></span>
+                </div>
+                <input type="range"
+                       x-model="parameters.lumpsum"
+                       @input="debounceGenerate()"
+                       min="0" max="10000000" step="50000">
+                <div class="flex justify-between text-xs text-gray-500 mt-1">
+                    <span>₹0</span>
+                    <span>₹1Cr</span>
+                </div>
+            </div>
+
+            <!-- Equity % Slider -->
+            <div class="slider-container">
+                <div class="flex justify-between items-center mb-2">
+                    <label class="font-medium text-gray-700">Equity Allocation</label>
+                    <span class="slider-value" x-text="`${parameters.equity_percent}%`"></span>
+                </div>
+                <input type="range"
+                       x-model="parameters.equity_percent"
+                       @input="debounceGenerate()"
+                       min="30" max="85" step="5">
+                <div class="flex justify-between text-xs text-gray-500 mt-1">
+                    <span>30%</span>
+                    <span>85%</span>
+                </div>
+            </div>
+
+            <!-- Step-up % Slider -->
+            <div class="slider-container">
+                <div class="flex justify-between items-center mb-2">
+                    <label class="font-medium text-gray-700">Annual Step-up</label>
+                    <span class="slider-value" x-text="`${parameters.step_up_percent}%`"></span>
+                </div>
+                <input type="range"
+                       x-model="parameters.step_up_percent"
+                       @input="debounceGenerate()"
+                       min="0" max="20" step="1">
+                <div class="flex justify-between text-xs text-gray-500 mt-1">
+                    <span>0%</span>
+                    <span>20%</span>
+                </div>
+            </div>
+
+            <!-- Timeline Slider -->
+            <div class="slider-container">
+                <div class="flex justify-between items-center mb-2">
+                    <label class="font-medium text-gray-700">Investment Timeline</label>
+                    <span class="slider-value" x-text="`${parameters.timeline_years} years`"></span>
+                </div>
+                <input type="range"
+                       x-model="parameters.timeline_years"
+                       @input="debounceGenerate()"
+                       min="1" max="30" step="1">
+                <div class="flex justify-between text-xs text-gray-500 mt-1">
+                    <span>1Y</span>
+                    <span>30Y</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading State -->
+    <div x-show="loading" class="text-center py-12">
+        <div class="spinner mx-auto mb-4"></div>
+        <p class="text-gray-600">Generating optimized portfolios...</p>
+    </div>
+
+    <!-- Portfolio Options -->
+    <div x-show="!loading && portfolios.length > 0" class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+        <template x-for="(portfolio, index) in portfolios" :key="index">
+            <div class="portfolio-card bg-white rounded-lg shadow-lg p-6 cursor-pointer"
+                 :class="selectedPortfolio === index ? 'ring-4 ring-blue-500' : ''"
+                 @click="selectedPortfolio = index">
+                <div class="flex justify-between items-start mb-4">
+                    <div>
+                        <h3 class="text-lg font-bold text-gray-900" x-text="portfolio.name"></h3>
+                        <p class="text-sm text-gray-600" x-text="portfolio.strategy"></p>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-2xl font-bold text-green-600"
+                              x-text="`${portfolio.projections.cagr}%`"></span>
+                        <p class="text-xs text-gray-600">Expected CAGR</p>
+                    </div>
+                </div>
+
+                <!-- Asset Allocation Mini Chart -->
+                <div class="mb-4">
+                    <div class="flex items-center justify-between text-sm mb-2">
+                        <span class="text-gray-700">Equity</span>
+                        <span class="font-semibold" x-text="`${portfolio.allocation.equity.percent}%`"></span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-2 mb-3">
+                        <div class="bg-blue-600 h-2 rounded-full"
+                             :style="`width: ${portfolio.allocation.equity.percent}%`"></div>
+                    </div>
+
+                    <div class="flex items-center justify-between text-sm mb-2">
+                        <span class="text-gray-700">Mutual Funds</span>
+                        <span class="font-semibold" x-text="`${portfolio.allocation.mutual_funds.percent}%`"></span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-2">
+                        <div class="bg-green-600 h-2 rounded-full"
+                             :style="`width: ${portfolio.allocation.mutual_funds.percent}%`"></div>
+                    </div>
+                </div>
+
+                <!-- Final Value -->
+                <div class="border-t pt-4">
+                    <p class="text-sm text-gray-600">Final Value (10Y)</p>
+                    <p class="text-2xl font-bold text-gray-900"
+                       x-text="`₹${(portfolio.projections.final_value / 10000000).toFixed(2)}Cr`"></p>
+                </div>
+
+                <!-- Health Score -->
+                <div class="mt-3 flex items-center justify-between">
+                    <span class="text-sm text-gray-600">Health Score</span>
+                    <span class="px-3 py-1 rounded-full text-sm font-semibold"
+                          :class="portfolio.health_score && portfolio.health_score.total_score >= 85 ? 'bg-green-100 text-green-800' :
+                                  portfolio.health_score && portfolio.health_score.total_score >= 70 ? 'bg-yellow-100 text-yellow-800' :
+                                  'bg-gray-100 text-gray-800'"
+                          x-text="portfolio.health_score ? `${portfolio.health_score.total_score}/100` : 'N/A'"></span>
+                </div>
+            </div>
+        </template>
+    </div>
+
+    <!-- Detailed View of Selected Portfolio -->
+    <div x-show="selectedPortfolio !== null && portfolios[selectedPortfolio]" class="space-y-6">
+        <template x-if="portfolios[selectedPortfolio]">
+            <div>
+                <!-- Asset Allocation Pie Chart -->
+                <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
+                    <h3 class="text-xl font-bold text-gray-900 mb-4">
+                        <i class="fas fa-chart-pie text-blue-600 mr-2"></i>Asset Allocation
+                    </h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <canvas id="allocationChart"></canvas>
+                        </div>
+                        <div class="flex flex-col justify-center space-y-4">
+                            <div class="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
+                                <div class="flex items-center">
+                                    <div class="w-4 h-4 bg-blue-600 rounded mr-3"></div>
+                                    <span class="font-medium">Direct Equity</span>
+                                </div>
+                                <span class="font-bold" x-text="`${portfolios[selectedPortfolio]?.allocation.equity.percent}%`"></span>
+                            </div>
+                            <div class="flex items-center justify-between p-3 bg-green-50 rounded-lg">
+                                <div class="flex items-center">
+                                    <div class="w-4 h-4 bg-green-600 rounded mr-3"></div>
+                                    <span class="font-medium">Mutual Funds</span>
+                                </div>
+                                <span class="font-bold" x-text="`${portfolios[selectedPortfolio]?.allocation.mutual_funds.percent}%`"></span>
+                            </div>
+                            <div class="flex items-center justify-between p-3 bg-yellow-50 rounded-lg">
+                                <div class="flex items-center">
+                                    <div class="w-4 h-4 bg-yellow-600 rounded mr-3"></div>
+                                    <span class="font-medium">Cash Buffer</span>
+                                </div>
+                                <span class="font-bold" x-text="`${portfolios[selectedPortfolio]?.allocation.cash.percent}%`"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Growth Projection Chart -->
+                <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
+                    <h3 class="text-xl font-bold text-gray-900 mb-4">
+                        <i class="fas fa-chart-line text-green-600 mr-2"></i>Wealth Growth Projection
+                    </h3>
+                    <canvas id="growthChart"></canvas>
+                </div>
+
+                <!-- Product Breakdown -->
+                <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
+                    <h3 class="text-xl font-bold text-gray-900 mb-4">
+                        <i class="fas fa-layer-group text-purple-600 mr-2"></i>Product-wise Breakdown
+                    </h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <!-- Equity Breakdown -->
+                        <div>
+                            <h4 class="font-semibold text-gray-800 mb-3">Direct Equity Portfolio</h4>
+                            <template x-for="(value, key) in portfolios[selectedPortfolio]?.allocation.equity.breakdown" :key="key">
+                                <div class="mb-3">
+                                    <div class="flex justify-between text-sm mb-1">
+                                        <span class="capitalize" x-text="key.replace('_', ' ')"></span>
+                                        <span class="font-semibold" x-text="`₹${value.monthly.toLocaleString('en-IN')}/mo`"></span>
+                                    </div>
+                                    <div class="w-full bg-gray-200 rounded-full h-2">
+                                        <div class="bg-blue-600 h-2 rounded-full"
+                                             :style="`width: ${value.percent}%`"></div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+
+                        <!-- MF Breakdown -->
+                        <div>
+                            <h4 class="font-semibold text-gray-800 mb-3">Mutual Funds (Risk Cushion)</h4>
+                            <template x-for="(value, key) in portfolios[selectedPortfolio]?.allocation.mutual_funds.breakdown" :key="key">
+                                <div class="mb-3">
+                                    <div class="flex justify-between text-sm mb-1">
+                                        <span class="capitalize" x-text="key"></span>
+                                        <span class="font-semibold" x-text="`₹${value.monthly.toLocaleString('en-IN')}/mo`"></span>
+                                    </div>
+                                    <div class="w-full bg-gray-200 rounded-full h-2">
+                                        <div class="bg-green-600 h-2 rounded-full"
+                                             :style="`width: ${value.percent}%`"></div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tax Harvesting Strategy (USP!) -->
+                <div class="bg-gradient-to-r from-green-50 to-blue-50 rounded-lg shadow-lg p-6 mb-6">
+                    <h3 class="text-xl font-bold text-gray-900 mb-2">
+                        <i class="fas fa-coins text-green-600 mr-2"></i>Tax Harvesting Strategy
+                        <span class="text-sm font-normal text-green-600 ml-2">⭐ Your Competitive Advantage</span>
+                    </h3>
+                    <p class="text-gray-700 mb-4" x-text="portfolios[selectedPortfolio]?.tax_harvesting.strategy"></p>
+
+                    <div class="bg-white rounded-lg p-4 mb-4">
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
+                            <div>
+                                <p class="text-sm text-gray-600">Total Tax-Free Gains</p>
+                                <p class="text-2xl font-bold text-green-600"
+                                   x-text="`₹${(portfolios[selectedPortfolio]?.tax_harvesting.total_harvested / 100000).toFixed(2)}L`"></p>
+                            </div>
+                            <div>
+                                <p class="text-sm text-gray-600">Harvesting Events</p>
+                                <p class="text-2xl font-bold text-blue-600"
+                                   x-text="portfolios[selectedPortfolio]?.tax_harvesting.schedule?.length || 0"></p>
+                            </div>
+                            <div>
+                                <p class="text-sm text-gray-600">Tax Saved</p>
+                                <p class="text-2xl font-bold text-purple-600">₹0</p>
+                                <p class="text-xs text-gray-500">(Under ₹1.25L exemption)</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Timeline -->
+                    <div class="tax-harvesting-timeline">
+                        <template x-for="event in portfolios[selectedPortfolio]?.tax_harvesting.schedule" :key="event.year">
+                            <div class="timeline-item">
+                                <div class="bg-white rounded-lg p-4 shadow">
+                                    <div class="flex justify-between items-start mb-2">
+                                        <span class="font-bold text-gray-900">Year <span x-text="event.year"></span></span>
+                                        <span class="text-green-600 font-bold" x-text="`₹${(event.harvest_amount/100000).toFixed(2)}L`"></span>
+                                    </div>
+                                    <p class="text-sm text-gray-700 mb-2" x-text="event.action"></p>
+                                    <p class="text-xs text-gray-600" x-text="event.benefit"></p>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- Mutual Fund Schemes (Live Data) -->
+                <div x-show="portfolios[selectedPortfolio]?.mutual_fund_schemes"
+                     class="bg-white rounded-lg shadow-lg p-6">
+                    <h3 class="text-xl font-bold text-gray-900 mb-4">
+                        <i class="fas fa-chart-bar text-blue-600 mr-2"></i>Recommended Mutual Fund Schemes
+                    </h3>
+                    <template x-for="(schemes, category) in portfolios[selectedPortfolio]?.mutual_fund_schemes" :key="category">
+                        <div class="mb-4">
+                            <h4 class="font-semibold text-gray-800 mb-2 capitalize" x-text="category"></h4>
+                            <div class="space-y-2">
+                                <template x-for="scheme in schemes" :key="scheme.scheme_code">
+                                    <div class="border rounded-lg p-3 hover:bg-gray-50">
+                                        <div class="flex justify-between items-start">
+                                            <div class="flex-1">
+                                                <p class="font-medium text-gray-900 text-sm" x-text="scheme.scheme_name || scheme.name"></p>
+                                                <p class="text-xs text-gray-600" x-text="scheme.fund_house || 'Top Performer'"></p>
+                                            </div>
+                                            <div class="text-right ml-4">
+                                                <p class="text-sm font-bold text-green-600"
+                                                   x-show="scheme.returns?.['1y']"
+                                                   x-text="scheme.returns ? `${scheme.returns['1y']}%` : 'N/A'"></p>
+                                                <p class="text-xs text-gray-500">1Y Return</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </template>
+    </div>
+</div>
+
+<script>
+const API_URL = '/api';
+
+function portfolioDashboard() {
+    return {
+        loading: false,
+        clientInfo: {
+            name: 'Demo Client',
+            risk_profile: 'MODERATE',
+            response_id: null
+        },
+        parameters: {
+            monthly_sip: 50000,
+            lumpsum: 0,
+            equity_percent: 60,
+            step_up_percent: 10,
+            timeline_years: 10
+        },
+        portfolios: [],
+        selectedPortfolio: 0,
+        allocationChart: null,
+        growthChart: null,
+        debounceTimer: null,
+
+        async init() {
+            // Check if we have a response_id in URL
+            const urlParams = new URLSearchParams(window.location.search);
+            const responseId = urlParams.get('response_id');
+
+            if (responseId) {
+                this.clientInfo.response_id = responseId;
+                await this.loadFromResponse(responseId);
+            } else {
+                await this.generatePortfolios();
+            }
+        },
+
+        async loadFromResponse(responseId) {
+            try {
+                this.loading = true;
+                const response = await axios.get(`${API_URL}/portfolio/from-response/${responseId}`);
+                this.portfolios = response.data.portfolios;
+
+                // Update client info from first portfolio
+                if (this.portfolios.length > 0) {
+                    this.clientInfo.risk_profile = this.portfolios[0].risk_profile;
+                    this.parameters.monthly_sip = this.portfolios[0].parameters.monthly_sip;
+                    this.parameters.lumpsum = this.portfolios[0].parameters.lumpsum;
+                }
+
+                this.$nextTick(() => this.renderCharts());
+
+            } catch (error) {
+                showToast('Error loading portfolio: ' + error.message, 'error');
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        debounceGenerate() {
+            clearTimeout(this.debounceTimer);
+            this.debounceTimer = setTimeout(() => {
+                this.generatePortfolios();
+            }, 500);
+        },
+
+        async generatePortfolios() {
+            try {
+                this.loading = true;
+
+                const response = await axios.post(`${API_URL}/portfolio/generate`, {
+                    risk_profile: this.clientInfo.risk_profile,
+                    monthly_sip: parseFloat(this.parameters.monthly_sip),
+                    lumpsum: parseFloat(this.parameters.lumpsum),
+                    timeline_years: parseInt(this.parameters.timeline_years),
+                    step_up_percent: parseFloat(this.parameters.step_up_percent),
+                    equity_preference: parseFloat(this.parameters.equity_percent)
+                });
+
+                this.portfolios = response.data.portfolios;
+                this.selectedPortfolio = 0;
+
+                this.$nextTick(() => this.renderCharts());
+
+            } catch (error) {
+                showToast('Error generating portfolios: ' + error.message, 'error');
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        renderCharts() {
+            if (!this.portfolios[this.selectedPortfolio]) return;
+
+            const portfolio = this.portfolios[this.selectedPortfolio];
+
+            // Destroy existing charts
+            if (this.allocationChart) this.allocationChart.destroy();
+            if (this.growthChart) this.growthChart.destroy();
+
+            // Asset Allocation Pie Chart
+            const allocationCtx = document.getElementById('allocationChart');
+            if (allocationCtx) {
+                this.allocationChart = new Chart(allocationCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Direct Equity', 'Mutual Funds', 'Cash'],
+                        datasets: [{
+                            data: [
+                                portfolio.allocation.equity.percent,
+                                portfolio.allocation.mutual_funds.percent,
+                                portfolio.allocation.cash.percent
+                            ],
+                            backgroundColor: ['#2563eb', '#10b981', '#f59e0b']
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: {
+                                position: 'bottom'
+                            }
+                        }
+                    }
+                });
+            }
+
+            // Growth Projection Line Chart
+            const growthCtx = document.getElementById('growthChart');
+            if (growthCtx && portfolio.projections.year_by_year) {
+                const years = portfolio.projections.year_by_year.map(y => `Year ${y.year}`);
+                const invested = portfolio.projections.year_by_year.map(y => y.total_invested);
+                const value = portfolio.projections.year_by_year.map(y => y.portfolio_value);
+
+                this.growthChart = new Chart(growthCtx, {
+                    type: 'line',
+                    data: {
+                        labels: years,
+                        datasets: [
+                            {
+                                label: 'Total Invested',
+                                data: invested,
+                                borderColor: '#6b7280',
+                                backgroundColor: 'rgba(107, 114, 128, 0.1)',
+                                fill: true
+                            },
+                            {
+                                label: 'Portfolio Value',
+                                data: value,
+                                borderColor: '#10b981',
+                                backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                                fill: true
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: {
+                                position: 'top'
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                ticks: {
+                                    callback: function(value) {
+                                        return '₹' + (value / 100000).toFixed(1) + 'L';
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+    };
+}
+</script>
+{% endblock %}
