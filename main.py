@@ -49,6 +49,12 @@ templates = Jinja2Templates(directory="templates")
 # Create uploads directory if it doesn't exist
 os.makedirs(settings.upload_dir, exist_ok=True)
 
+# Import and include routers
+from routers import prospects, questionnaire, portfolio
+app.include_router(prospects.router)
+app.include_router(questionnaire.router)
+app.include_router(portfolio.router)
+
 # Validation Error Handler
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
@@ -3144,6 +3150,41 @@ async def calendar_page(request: Request):
 async def documents_page(request: Request):
     """Documents management page"""
     return templates.TemplateResponse("documents/index.html", {"request": request})
+
+@app.get("/prospects", response_class=HTMLResponse, tags=["Frontend"])
+async def prospects_list_page(request: Request):
+    """Prospects list page (Admin only)"""
+    return templates.TemplateResponse("prospects/list.html", {"request": request})
+
+@app.get("/prospects/import", response_class=HTMLResponse, tags=["Frontend"])
+async def prospects_import_page(request: Request):
+    """Prospects import page (Admin only)"""
+    return templates.TemplateResponse("prospects/import.html", {"request": request})
+
+@app.get("/prospects/analytics", response_class=HTMLResponse, tags=["Frontend"])
+async def prospects_analytics_page(request: Request):
+    """Prospects analytics page (Admin only)"""
+    return templates.TemplateResponse("prospects/analytics.html", {"request": request})
+
+@app.get("/prospects/{prospect_id}", response_class=HTMLResponse, tags=["Frontend"])
+async def prospect_detail_page(request: Request, prospect_id: int):
+    """Prospect detail page (Admin only)"""
+    return templates.TemplateResponse("prospects/detail.html", {"request": request, "prospect_id": prospect_id})
+
+@app.get("/questionnaire-invites", response_class=HTMLResponse, tags=["Frontend"])
+async def questionnaire_invites_page(request: Request):
+    """Questionnaire invites management page (Admin only)"""
+    return templates.TemplateResponse("questionnaire/invites.html", {"request": request})
+
+@app.get("/questionnaire-responses", response_class=HTMLResponse, tags=["Frontend"])
+async def questionnaire_responses_page(request: Request):
+    """View questionnaire responses (Admin only)"""
+    return templates.TemplateResponse("questionnaire/responses.html", {"request": request})
+
+@app.get("/questionnaire/{token}", response_class=HTMLResponse, tags=["Frontend"])
+async def public_questionnaire_page(request: Request, token: str):
+    """Public questionnaire form (No auth required)"""
+    return templates.TemplateResponse("questionnaire/public_form.html", {"request": request, "token": token})
 
 @app.get("/billing/commissions", response_class=HTMLResponse, tags=["Frontend"])
 async def commissions_page(request: Request):

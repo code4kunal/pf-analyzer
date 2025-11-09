@@ -1,0 +1,385 @@
+{% extends "components/base.html" %}
+
+{% block title %}Prospect Details - GrowFolio CMS{% endblock %}
+{% block page_title %}Prospect Details{% endblock %}
+
+{% block content %}
+<div x-data="prospectDetailApp({{ prospect_id }})" x-init="loadProspect()">
+    <!-- Back Button -->
+    <div class="mb-6">
+        <a href="/prospects" class="text-primary hover:text-blue-900 font-medium">
+            <i class="fas fa-arrow-left mr-2"></i>Back to Prospects
+        </a>
+    </div>
+
+    <!-- Loading State -->
+    <div x-show="loading" class="text-center py-12">
+        <div class="spinner mx-auto mb-4"></div>
+        <p class="text-gray-600">Loading prospect details...</p>
+    </div>
+
+    <!-- Prospect Details -->
+    <div x-show="!loading && prospect">
+        <!-- Header with Actions -->
+        <div class="bg-white rounded-lg shadow p-6 mb-6">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-900" x-text="prospect?.full_name"></h1>
+                    <div class="flex items-center gap-4 mt-2">
+                        <span :class="getStatusBadgeClass(prospect?.status)" class="px-3 py-1 text-xs font-semibold rounded-full" x-text="prospect?.status"></span>
+                        <span :class="getPriorityBadgeClass(prospect?.priority)" class="px-3 py-1 text-xs font-semibold rounded-full" x-text="prospect?.priority"></span>
+                        <span class="text-sm text-gray-500">
+                            <i class="fas fa-tag mr-1"></i><span x-text="prospect?.source"></span>
+                        </span>
+                    </div>
+                </div>
+                <div class="flex gap-3">
+                    <button
+                        @click="editMode = !editMode"
+                        class="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition"
+                    >
+                        <i :class="editMode ? 'fa-times' : 'fa-edit'" class="fas mr-2"></i>
+                        <span x-text="editMode ? 'Cancel' : 'Edit'"></span>
+                    </button>
+                    <button
+                        x-show="prospect?.status !== 'CONVERTED'"
+                        @click="convertToCustomer()"
+                        class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition"
+                    >
+                        <i class="fas fa-user-check mr-2"></i>Convert to Customer
+                    </button>
+                    <button
+                        @click="deleteProspect()"
+                        class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition"
+                    >
+                        <i class="fas fa-trash mr-2"></i>Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Main Details -->
+            <div class="lg:col-span-2 space-y-6">
+                <!-- Contact Information -->
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h2 class="text-lg font-bold text-gray-900 mb-4">
+                        <i class="fas fa-address-card mr-2 text-primary"></i>Contact Information
+                    </h2>
+
+                    <div x-show="!editMode" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="text-sm font-medium text-gray-500">Email</label>
+                            <p class="text-gray-900" x-text="prospect?.email || '-'"></p>
+                        </div>
+                        <div>
+                            <label class="text-sm font-medium text-gray-500">Phone</label>
+                            <p class="text-gray-900" x-text="prospect?.phone || '-'"></p>
+                        </div>
+                        <div>
+                            <label class="text-sm font-medium text-gray-500">Alternate Phone</label>
+                            <p class="text-gray-900" x-text="prospect?.alternate_phone || '-'"></p>
+                        </div>
+                        <div>
+                            <label class="text-sm font-medium text-gray-500">Company</label>
+                            <p class="text-gray-900" x-text="prospect?.company || '-'"></p>
+                        </div>
+                        <div>
+                            <label class="text-sm font-medium text-gray-500">Designation</label>
+                            <p class="text-gray-900" x-text="prospect?.designation || '-'"></p>
+                        </div>
+                        <div>
+                            <label class="text-sm font-medium text-gray-500">Estimated Portfolio Value</label>
+                            <p class="text-gray-900">
+                                <span x-show="prospect?.estimated_portfolio_value" x-text="formatCurrency(prospect?.estimated_portfolio_value)"></span>
+                                <span x-show="!prospect?.estimated_portfolio_value">-</span>
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Edit Mode Form -->
+                    <form x-show="editMode" @submit.prevent="saveProspect()" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Full Name *</label>
+                            <input type="text" x-model="editData.full_name" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                            <input type="email" x-model="editData.email" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                            <input type="text" x-model="editData.phone" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Alternate Phone</label>
+                            <input type="text" x-model="editData.alternate_phone" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Company</label>
+                            <input type="text" x-model="editData.company" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Designation</label>
+                            <input type="text" x-model="editData.designation" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                            <select x-model="editData.status" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary">
+                                <option value="NEW">New</option>
+                                <option value="CONTACTED">Contacted</option>
+                                <option value="QUALIFIED">Qualified</option>
+                                <option value="NEGOTIATION">Negotiation</option>
+                                <option value="LOST">Lost</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+                            <select x-model="editData.priority" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary">
+                                <option value="HOT">Hot</option>
+                                <option value="WARM">Warm</option>
+                                <option value="COLD">Cold</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Estimated Portfolio Value</label>
+                            <input type="number" x-model="editData.estimated_portfolio_value" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Next Follow-up Date</label>
+                            <input type="datetime-local" x-model="editData.next_follow_up_date" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary">
+                        </div>
+                        <div class="md:col-span-2">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+                            <textarea x-model="editData.notes" rows="3" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary"></textarea>
+                        </div>
+                        <div class="md:col-span-2 flex justify-end gap-3">
+                            <button type="button" @click="editMode = false" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">
+                                Cancel
+                            </button>
+                            <button type="submit" class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-blue-900">
+                                <i class="fas fa-save mr-2"></i>Save Changes
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Activity Timeline -->
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h2 class="text-lg font-bold text-gray-900 mb-4">
+                        <i class="fas fa-history mr-2 text-primary"></i>Activity Timeline
+                    </h2>
+                    <div class="space-y-4">
+                        <template x-for="activity in prospect?.activities || []" :key="activity.id">
+                            <div class="flex items-start gap-4 p-4 bg-gray-50 rounded-lg">
+                                <div class="flex-shrink-0 w-10 h-10 bg-primary text-white rounded-full flex items-center justify-center">
+                                    <i class="fas fa-clock text-sm"></i>
+                                </div>
+                                <div class="flex-1">
+                                    <p class="font-medium text-gray-900" x-text="activity.description"></p>
+                                    <p class="text-sm text-gray-500 mt-1">
+                                        <span x-text="formatDateTime(activity.created_at)"></span>
+                                        <span x-show="activity.user"> by <span x-text="activity.user?.full_name"></span></span>
+                                    </p>
+                                    <div x-show="activity.changes" class="mt-2 text-xs text-gray-600">
+                                        <pre x-text="JSON.stringify(activity.changes, null, 2)" class="bg-white p-2 rounded border border-gray-200 overflow-x-auto"></pre>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                        <div x-show="!prospect?.activities?.length" class="text-center py-8 text-gray-500">
+                            <i class="fas fa-inbox text-3xl mb-2"></i>
+                            <p>No activity history yet</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sidebar -->
+            <div class="space-y-6">
+                <!-- Quick Stats -->
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h2 class="text-lg font-bold text-gray-900 mb-4">Quick Stats</h2>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="text-sm text-gray-500">Contact Attempts</label>
+                            <p class="text-2xl font-bold text-gray-900" x-text="prospect?.contact_attempts || 0"></p>
+                        </div>
+                        <div>
+                            <label class="text-sm text-gray-500">First Contact</label>
+                            <p class="text-sm text-gray-900">
+                                <span x-show="prospect?.first_contact_date" x-text="formatDate(prospect?.first_contact_date)"></span>
+                                <span x-show="!prospect?.first_contact_date">Not contacted yet</span>
+                            </p>
+                        </div>
+                        <div>
+                            <label class="text-sm text-gray-500">Last Contact</label>
+                            <p class="text-sm text-gray-900">
+                                <span x-show="prospect?.last_contact_date" x-text="formatDate(prospect?.last_contact_date)"></span>
+                                <span x-show="!prospect?.last_contact_date">-</span>
+                            </p>
+                        </div>
+                        <div>
+                            <label class="text-sm text-gray-500">Next Follow-up</label>
+                            <p class="text-sm font-medium" :class="isOverdue(prospect?.next_follow_up_date) ? 'text-red-600' : 'text-gray-900'">
+                                <span x-show="prospect?.next_follow_up_date" x-text="formatDateTime(prospect?.next_follow_up_date)"></span>
+                                <span x-show="!prospect?.next_follow_up_date">Not scheduled</span>
+                            </p>
+                        </div>
+                        <div>
+                            <label class="text-sm text-gray-500">Created</label>
+                            <p class="text-sm text-gray-900" x-text="formatDate(prospect?.created_at)"></p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Quick Actions -->
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h2 class="text-lg font-bold text-gray-900 mb-4">Quick Actions</h2>
+                    <div class="space-y-3">
+                        <button
+                            @click="logCall()"
+                            class="w-full px-4 py-2 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition text-left"
+                        >
+                            <i class="fas fa-phone mr-2"></i>Log Call
+                        </button>
+                        <button
+                            @click="sendEmail()"
+                            class="w-full px-4 py-2 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 transition text-left"
+                        >
+                            <i class="fas fa-envelope mr-2"></i>Send Email
+                        </button>
+                        <button
+                            @click="scheduleFollowUp()"
+                            class="w-full px-4 py-2 bg-purple-50 text-purple-700 rounded-lg hover:bg-purple-100 transition text-left"
+                        >
+                            <i class="fas fa-calendar-plus mr-2"></i>Schedule Follow-up
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Tags -->
+                <div class="bg-white rounded-lg shadow p-6" x-show="prospect?.tags?.length">
+                    <h2 class="text-lg font-bold text-gray-900 mb-4">Tags</h2>
+                    <div class="flex flex-wrap gap-2">
+                        <template x-for="tag in prospect?.tags || []" :key="tag">
+                            <span class="px-3 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded-full" x-text="tag"></span>
+                        </template>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function prospectDetailApp(prospectId) {
+    return {
+        prospectId,
+        prospect: null,
+        loading: false,
+        editMode: false,
+        editData: {},
+
+        async loadProspect() {
+            this.loading = true;
+            try {
+                const response = await axios.get(`${API_URL}/prospects/${this.prospectId}`);
+                this.prospect = response.data;
+                this.editData = { ...response.data };
+            } catch (error) {
+                showToast('Error loading prospect: ' + (error.response?.data?.detail || error.message), 'error');
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        async saveProspect() {
+            try {
+                showLoading();
+                await axios.put(`${API_URL}/prospects/${this.prospectId}`, this.editData);
+                showToast('Prospect updated successfully', 'success');
+                this.editMode = false;
+                await this.loadProspect();
+            } catch (error) {
+                showToast('Error updating prospect: ' + (error.response?.data?.detail || error.message), 'error');
+            } finally {
+                hideLoading();
+            }
+        },
+
+        async convertToCustomer() {
+            if (!confirm('Convert this prospect to a customer?')) return;
+
+            try {
+                showLoading();
+                await axios.post(`${API_URL}/prospects/${this.prospectId}/convert`, { copy_notes: true });
+                showToast('Prospect converted to customer successfully!', 'success');
+                window.location.href = '/prospects';
+            } catch (error) {
+                showToast('Error converting prospect: ' + (error.response?.data?.detail || error.message), 'error');
+            } finally {
+                hideLoading();
+            }
+        },
+
+        async deleteProspect() {
+            if (!confirm('Are you sure you want to delete this prospect?')) return;
+
+            try {
+                showLoading();
+                await axios.delete(`${API_URL}/prospects/${this.prospectId}`);
+                showToast('Prospect deleted successfully', 'success');
+                window.location.href = '/prospects';
+            } catch (error) {
+                showToast('Error deleting prospect: ' + (error.response?.data?.detail || error.message), 'error');
+            } finally {
+                hideLoading();
+            }
+        },
+
+        getStatusBadgeClass(status) {
+            const classes = {
+                'NEW': 'bg-blue-100 text-blue-800',
+                'CONTACTED': 'bg-yellow-100 text-yellow-800',
+                'QUALIFIED': 'bg-purple-100 text-purple-800',
+                'NEGOTIATION': 'bg-orange-100 text-orange-800',
+                'CONVERTED': 'bg-green-100 text-green-800',
+                'LOST': 'bg-red-100 text-red-800'
+            };
+            return classes[status] || 'bg-gray-100 text-gray-800';
+        },
+
+        getPriorityBadgeClass(priority) {
+            const classes = {
+                'HOT': 'bg-red-100 text-red-800',
+                'WARM': 'bg-orange-100 text-orange-800',
+                'COLD': 'bg-blue-100 text-blue-800'
+            };
+            return classes[priority] || 'bg-gray-100 text-gray-800';
+        },
+
+        isOverdue(dateString) {
+            if (!dateString) return false;
+            return new Date(dateString) < new Date();
+        },
+
+        logCall() {
+            showToast('Log call feature coming soon', 'info');
+        },
+
+        sendEmail() {
+            if (this.prospect?.email) {
+                window.location.href = `mailto:${this.prospect.email}`;
+            }
+        },
+
+        scheduleFollowUp() {
+            showToast('Schedule follow-up feature coming soon', 'info');
+        }
+    };
+}
+</script>
+{% endblock %}

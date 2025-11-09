@@ -1,0 +1,506 @@
+{% extends "components/base.html" %}
+
+{% block title %}Prospects - GrowFolio CMS{% endblock %}
+{% block page_title %}Prospects{% endblock %}
+
+{% block content %}
+<div x-data="prospectsApp()" x-init="loadProspects()">
+    <!-- Page Header with Actions -->
+    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 gap-4">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">Prospects</h1>
+            <p class="text-gray-600 mt-1">Manage potential customers and leads</p>
+        </div>
+        <div class="flex gap-3">
+            <button
+                @click="window.location.href='/prospects/analytics'"
+                class="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition"
+            >
+                <i class="fas fa-chart-bar mr-2 text-primary"></i>
+                Analytics
+            </button>
+            <button
+                @click="exportToExcel()"
+                class="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition"
+            >
+                <i class="fas fa-file-excel mr-2 text-green-600"></i>
+                Export
+            </button>
+            <button
+                @click="window.location.href='/prospects/import'"
+                class="px-4 py-2 bg-secondary hover:bg-gray-800 text-white rounded-lg transition"
+            >
+                <i class="fas fa-file-upload mr-2"></i>
+                Import
+            </button>
+            <button
+                @click="showCreateModal = true"
+                class="px-4 py-2 bg-primary hover:bg-blue-900 text-white rounded-lg transition"
+            >
+                <i class="fas fa-plus mr-2"></i>
+                Add Prospect
+            </button>
+        </div>
+    </div>
+
+    <!-- Search and Filters -->
+    <div class="bg-white rounded-lg shadow mb-6 p-6">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+            <!-- Search -->
+            <div class="lg:col-span-2">
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    <i class="fas fa-search mr-1"></i> Search
+                </label>
+                <input
+                    type="text"
+                    x-model="filters.search"
+                    @input.debounce.500ms="loadProspects()"
+                    placeholder="Name, email, phone, company..."
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                >
+            </div>
+
+            <!-- Status Filter -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                <select
+                    x-model="filters.status"
+                    @change="loadProspects()"
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary"
+                >
+                    <option value="">All Statuses</option>
+                    <option value="NEW">New</option>
+                    <option value="CONTACTED">Contacted</option>
+                    <option value="QUALIFIED">Qualified</option>
+                    <option value="NEGOTIATION">Negotiation</option>
+                    <option value="CONVERTED">Converted</option>
+                    <option value="LOST">Lost</option>
+                </select>
+            </div>
+
+            <!-- Priority Filter -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">Priority</label>
+                <select
+                    x-model="filters.priority"
+                    @change="loadProspects()"
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary"
+                >
+                    <option value="">All Priorities</option>
+                    <option value="HOT">Hot</option>
+                    <option value="WARM">Warm</option>
+                    <option value="COLD">Cold</option>
+                </select>
+            </div>
+
+            <!-- Source Filter -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">Source</label>
+                <select
+                    x-model="filters.source"
+                    @change="loadProspects()"
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary"
+                >
+                    <option value="">All Sources</option>
+                    <option value="IMPORT">Import</option>
+                    <option value="MANUAL">Manual</option>
+                    <option value="REFERRAL">Referral</option>
+                    <option value="WEBSITE">Website</option>
+                    <option value="EVENT">Event</option>
+                    <option value="OTHER">Other</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Clear Filters -->
+        <div class="mt-4" x-show="filters.search || filters.status || filters.priority || filters.source">
+            <button
+                @click="clearFilters()"
+                class="text-sm text-primary hover:underline"
+            >
+                <i class="fas fa-times-circle mr-1"></i>
+                Clear all filters
+            </button>
+        </div>
+    </div>
+
+    <!-- Stats Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div class="bg-white p-4 rounded-lg shadow">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm text-gray-600">Total Prospects</p>
+                    <p class="text-2xl font-bold text-gray-900" x-text="total"></p>
+                </div>
+                <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                    <i class="fas fa-users text-blue-600 text-xl"></i>
+                </div>
+            </div>
+        </div>
+        <div class="bg-white p-4 rounded-lg shadow">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm text-gray-600">Hot Leads</p>
+                    <p class="text-2xl font-bold text-red-600" x-text="stats.hot || 0"></p>
+                </div>
+                <div class="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center">
+                    <i class="fas fa-fire text-red-600 text-xl"></i>
+                </div>
+            </div>
+        </div>
+        <div class="bg-white p-4 rounded-lg shadow">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm text-gray-600">Qualified</p>
+                    <p class="text-2xl font-bold text-purple-600" x-text="stats.qualified || 0"></p>
+                </div>
+                <div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
+                    <i class="fas fa-check-circle text-purple-600 text-xl"></i>
+                </div>
+            </div>
+        </div>
+        <div class="bg-white p-4 rounded-lg shadow">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm text-gray-600">Converted</p>
+                    <p class="text-2xl font-bold text-green-600" x-text="stats.converted || 0"></p>
+                </div>
+                <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                    <i class="fas fa-user-check text-green-600 text-xl"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading State -->
+    <div x-show="loading && !prospects.length" class="text-center py-12 bg-white rounded-lg shadow">
+        <div class="spinner mx-auto mb-4"></div>
+        <p class="text-gray-600">Loading prospects...</p>
+    </div>
+
+    <!-- Prospects Table -->
+    <div x-show="!loading || prospects.length" class="bg-white rounded-lg shadow overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Name
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Contact
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Company
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Status
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Priority
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Est. Value
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Next Follow-up
+                        </th>
+                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Actions
+                        </th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">
+                    <template x-for="prospect in prospects" :key="prospect.id">
+                        <tr class="hover:bg-gray-50">
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <div class="text-sm font-medium text-gray-900" x-text="prospect.full_name"></div>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <div class="text-sm text-gray-900" x-text="prospect.email"></div>
+                                <div class="text-sm text-gray-500" x-text="prospect.phone"></div>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" x-text="prospect.company || '-'"></td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span :class="getStatusBadgeClass(prospect.status)" x-text="prospect.status" class="px-2 py-1 text-xs font-semibold rounded-full"></span>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span :class="getPriorityBadgeClass(prospect.priority)" x-text="prospect.priority" class="px-2 py-1 text-xs font-semibold rounded-full"></span>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                <span x-show="prospect.estimated_portfolio_value" x-text="formatCurrency(prospect.estimated_portfolio_value)"></span>
+                                <span x-show="!prospect.estimated_portfolio_value">-</span>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                <span x-show="prospect.next_follow_up_date" x-text="formatDate(prospect.next_follow_up_date)"></span>
+                                <span x-show="!prospect.next_follow_up_date">-</span>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                <div class="flex justify-end gap-2">
+                                    <button
+                                        @click="viewProspect(prospect.id)"
+                                        class="text-primary hover:text-blue-900"
+                                        title="View Details"
+                                    >
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                    <button
+                                        @click="editProspect(prospect.id)"
+                                        class="text-gray-600 hover:text-gray-900"
+                                        title="Edit"
+                                    >
+                                        <i class="fas fa-edit"></i>
+                                    </button>
+                                    <button
+                                        x-show="prospect.status !== 'CONVERTED'"
+                                        @click="convertToCustomer(prospect.id)"
+                                        class="text-green-600 hover:text-green-900"
+                                        title="Convert to Customer"
+                                    >
+                                        <i class="fas fa-user-check"></i>
+                                    </button>
+                                    <button
+                                        @click="deleteProspect(prospect.id)"
+                                        class="text-red-600 hover:text-red-900"
+                                        title="Delete"
+                                    >
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Empty State -->
+        <div x-show="!loading && !prospects.length" class="text-center py-12">
+            <i class="fas fa-user-plus text-gray-400 text-5xl mb-4"></i>
+            <p class="text-gray-600 text-lg font-medium">No prospects found</p>
+            <p class="text-gray-500 mt-2">Add your first prospect or import from CSV/Excel</p>
+            <div class="mt-6 flex justify-center gap-3">
+                <button
+                    @click="showCreateModal = true"
+                    class="px-4 py-2 bg-primary hover:bg-blue-900 text-white rounded-lg transition"
+                >
+                    <i class="fas fa-plus mr-2"></i>
+                    Add Prospect
+                </button>
+                <button
+                    @click="window.location.href='/prospects/import'"
+                    class="px-4 py-2 bg-secondary hover:bg-gray-800 text-white rounded-lg transition"
+                >
+                    <i class="fas fa-file-upload mr-2"></i>
+                    Import
+                </button>
+            </div>
+        </div>
+
+        <!-- Pagination -->
+        <div x-show="total > 0" class="bg-gray-50 px-6 py-4 flex items-center justify-between border-t border-gray-200">
+            <div class="text-sm text-gray-700">
+                Showing <span class="font-medium" x-text="((page - 1) * pageSize) + 1"></span> to
+                <span class="font-medium" x-text="Math.min(page * pageSize, total)"></span> of
+                <span class="font-medium" x-text="total"></span> results
+            </div>
+            <div class="flex gap-2">
+                <button
+                    @click="previousPage()"
+                    :disabled="page === 1"
+                    :class="page === 1 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-200'"
+                    class="px-4 py-2 border border-gray-300 rounded-lg bg-white transition"
+                >
+                    <i class="fas fa-chevron-left"></i>
+                </button>
+                <span class="px-4 py-2 border border-gray-300 rounded-lg bg-white">
+                    Page <span x-text="page"></span> of <span x-text="totalPages"></span>
+                </span>
+                <button
+                    @click="nextPage()"
+                    :disabled="page >= totalPages"
+                    :class="page >= totalPages ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-200'"
+                    class="px-4 py-2 border border-gray-300 rounded-lg bg-white transition"
+                >
+                    <i class="fas fa-chevron-right"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function prospectsApp() {
+    return {
+        prospects: [],
+        total: 0,
+        page: 1,
+        pageSize: 20,
+        totalPages: 0,
+        loading: false,
+        stats: {},
+        filters: {
+            search: '',
+            status: '',
+            priority: '',
+            source: ''
+        },
+        showCreateModal: false,
+
+        async loadProspects() {
+            this.loading = true;
+            try {
+                const params = new URLSearchParams({
+                    page: this.page,
+                    page_size: this.pageSize
+                });
+
+                if (this.filters.search) params.append('search', this.filters.search);
+                if (this.filters.status) params.append('status', this.filters.status);
+                if (this.filters.priority) params.append('priority', this.filters.priority);
+                if (this.filters.source) params.append('source', this.filters.source);
+
+                const response = await axios.get(`${API_URL}/prospects?${params}`);
+                this.prospects = response.data.items;
+                this.total = response.data.total;
+                this.totalPages = response.data.total_pages;
+
+                // Load stats
+                this.loadStats();
+            } catch (error) {
+                showToast('Error loading prospects: ' + (error.response?.data?.detail || error.message), 'error');
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        async loadStats() {
+            try {
+                const response = await axios.get(`${API_URL}/prospects/analytics`);
+                this.stats = {
+                    hot: response.data.by_priority.HOT || 0,
+                    qualified: response.data.by_status.find(s => s.status === 'QUALIFIED')?.count || 0,
+                    converted: response.data.total_converted
+                };
+            } catch (error) {
+                console.error('Error loading stats:', error);
+            }
+        },
+
+        clearFilters() {
+            this.filters = {
+                search: '',
+                status: '',
+                priority: '',
+                source: ''
+            };
+            this.page = 1;
+            this.loadProspects();
+        },
+
+        nextPage() {
+            if (this.page < this.totalPages) {
+                this.page++;
+                this.loadProspects();
+            }
+        },
+
+        previousPage() {
+            if (this.page > 1) {
+                this.page--;
+                this.loadProspects();
+            }
+        },
+
+        getStatusBadgeClass(status) {
+            const classes = {
+                'NEW': 'bg-blue-100 text-blue-800',
+                'CONTACTED': 'bg-yellow-100 text-yellow-800',
+                'QUALIFIED': 'bg-purple-100 text-purple-800',
+                'NEGOTIATION': 'bg-orange-100 text-orange-800',
+                'CONVERTED': 'bg-green-100 text-green-800',
+                'LOST': 'bg-red-100 text-red-800'
+            };
+            return classes[status] || 'bg-gray-100 text-gray-800';
+        },
+
+        getPriorityBadgeClass(priority) {
+            const classes = {
+                'HOT': 'bg-red-100 text-red-800',
+                'WARM': 'bg-orange-100 text-orange-800',
+                'COLD': 'bg-blue-100 text-blue-800'
+            };
+            return classes[priority] || 'bg-gray-100 text-gray-800';
+        },
+
+        viewProspect(id) {
+            window.location.href = `/prospects/${id}`;
+        },
+
+        editProspect(id) {
+            window.location.href = `/prospects/${id}/edit`;
+        },
+
+        async convertToCustomer(id) {
+            if (!confirm('Convert this prospect to a customer?')) return;
+
+            try {
+                showLoading();
+                await axios.post(`${API_URL}/prospects/${id}/convert`, {
+                    copy_notes: true
+                });
+                showToast('Prospect converted to customer successfully!', 'success');
+                this.loadProspects();
+            } catch (error) {
+                showToast('Error converting prospect: ' + (error.response?.data?.detail || error.message), 'error');
+            } finally {
+                hideLoading();
+            }
+        },
+
+        async deleteProspect(id) {
+            if (!confirm('Are you sure you want to delete this prospect?')) return;
+
+            try {
+                await axios.delete(`${API_URL}/prospects/${id}`);
+                showToast('Prospect deleted successfully', 'success');
+                this.loadProspects();
+            } catch (error) {
+                showToast('Error deleting prospect: ' + (error.response?.data?.detail || error.message), 'error');
+            }
+        },
+
+        async exportToExcel() {
+            try {
+                showLoading();
+                const params = new URLSearchParams();
+                if (this.filters.search) params.append('search', this.filters.search);
+                if (this.filters.status) params.append('status', this.filters.status);
+                if (this.filters.priority) params.append('priority', this.filters.priority);
+                if (this.filters.source) params.append('source', this.filters.source);
+
+                const response = await axios.get(`${API_URL}/prospects/export?${params}`, {
+                    responseType: 'blob'
+                });
+
+                const url = window.URL.createObjectURL(new Blob([response.data]));
+                const link = document.createElement('a');
+                link.href = url;
+                link.setAttribute('download', `prospects_${new Date().toISOString().split('T')[0]}.xlsx`);
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+
+                showToast('Prospects exported successfully', 'success');
+            } catch (error) {
+                showToast('Error exporting prospects: ' + (error.response?.data?.detail || error.message), 'error');
+            } finally {
+                hideLoading();
+            }
+        }
+    };
+}
+</script>
+{% endblock %}

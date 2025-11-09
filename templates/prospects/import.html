@@ -1,0 +1,430 @@
+{% extends "components/base.html" %}
+
+{% block title %}Import Prospects - GrowFolio CMS{% endblock %}
+{% block page_title %}Import Prospects{% endblock %}
+
+{% block content %}
+<div x-data="importProspectsApp()" x-init="init()">
+    <!-- Back Button -->
+    <div class="mb-6">
+        <a href="/prospects" class="text-primary hover:text-blue-900 font-medium">
+            <i class="fas fa-arrow-left mr-2"></i>Back to Prospects
+        </a>
+    </div>
+
+    <!-- Page Header -->
+    <div class="mb-6">
+        <h1 class="text-2xl font-bold text-gray-900">Import Prospects</h1>
+        <p class="text-gray-600 mt-1">Upload CSV or Excel file to import prospects in bulk</p>
+    </div>
+
+    <!-- Steps Indicator -->
+    <div class="mb-8">
+        <div class="flex items-center justify-center">
+            <div class="flex items-center">
+                <div :class="step >= 1 ? 'bg-primary text-white' : 'bg-gray-300 text-gray-600'" class="w-10 h-10 rounded-full flex items-center justify-center font-bold">1</div>
+                <div class="w-24 h-1 mx-2" :class="step >= 2 ? 'bg-primary' : 'bg-gray-300'"></div>
+                <div :class="step >= 2 ? 'bg-primary text-white' : 'bg-gray-300 text-gray-600'" class="w-10 h-10 rounded-full flex items-center justify-center font-bold">2</div>
+                <div class="w-24 h-1 mx-2" :class="step >= 3 ? 'bg-primary' : 'bg-gray-300'"></div>
+                <div :class="step >= 3 ? 'bg-primary text-white' : 'bg-gray-300 text-gray-600'" class="w-10 h-10 rounded-full flex items-center justify-center font-bold">3</div>
+                <div class="w-24 h-1 mx-2" :class="step >= 4 ? 'bg-primary' : 'bg-gray-300'"></div>
+                <div :class="step >= 4 ? 'bg-primary text-white' : 'bg-gray-300 text-gray-600'" class="w-10 h-10 rounded-full flex items-center justify-center font-bold">4</div>
+            </div>
+        </div>
+        <div class="flex justify-center mt-4 text-sm font-medium">
+            <div class="w-32 text-center" :class="step === 1 ? 'text-primary' : 'text-gray-500'">Upload File</div>
+            <div class="w-32 text-center" :class="step === 2 ? 'text-primary' : 'text-gray-500'">Map Columns</div>
+            <div class="w-32 text-center" :class="step === 3 ? 'text-primary' : 'text-gray-500'">Preview</div>
+            <div class="w-32 text-center" :class="step === 4 ? 'text-primary' : 'text-gray-500'">Complete</div>
+        </div>
+    </div>
+
+    <!-- Step 1: Upload File -->
+    <div x-show="step === 1" class="bg-white rounded-lg shadow p-8">
+        <h2 class="text-xl font-bold mb-4">Step 1: Upload Your File</h2>
+        <p class="text-gray-600 mb-6">Upload a CSV or Excel file containing your prospects data. Maximum file size: 10MB.</p>
+
+        <!-- File Drop Zone -->
+        <div
+            @drop.prevent="handleFileDrop($event)"
+            @dragover.prevent="dragOver = true"
+            @dragleave.prevent="dragOver = false"
+            :class="dragOver ? 'border-primary bg-blue-50' : 'border-gray-300'"
+            class="border-2 border-dashed rounded-lg p-12 text-center transition"
+        >
+            <i class="fas fa-cloud-upload-alt text-6xl text-gray-400 mb-4"></i>
+            <p class="text-lg font-medium text-gray-700 mb-2">Drag and drop your file here</p>
+            <p class="text-gray-500 mb-4">or</p>
+            <label class="px-6 py-3 bg-primary text-white rounded-lg cursor-pointer hover:bg-blue-900 transition inline-block">
+                <i class="fas fa-folder-open mr-2"></i>Browse Files
+                <input type="file" @change="handleFileSelect($event)" accept=".csv,.xlsx,.xls" class="hidden">
+            </label>
+            <p class="text-sm text-gray-500 mt-4">Supported formats: CSV, XLSX, XLS (Max 10MB)</p>
+        </div>
+
+        <!-- Selected File Info -->
+        <div x-show="selectedFile" class="mt-6 p-4 bg-gray-50 rounded-lg flex items-center justify-between">
+            <div class="flex items-center">
+                <i class="fas fa-file-excel text-green-600 text-2xl mr-4"></i>
+                <div>
+                    <p class="font-medium" x-text="selectedFile?.name"></p>
+                    <p class="text-sm text-gray-500" x-text="formatFileSize(selectedFile?.size)"></p>
+                </div>
+            </div>
+            <button @click="selectedFile = null" class="text-red-600 hover:text-red-800">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+
+        <!-- Sample File Download -->
+        <div class="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <div class="flex items-start">
+                <i class="fas fa-info-circle text-blue-600 text-lg mt-1 mr-3"></i>
+                <div>
+                    <p class="font-medium text-blue-900">Need a template?</p>
+                    <p class="text-sm text-blue-700 mt-1">Download our sample CSV file to see the expected format.</p>
+                    <a href="/sample_import_prospects.csv" download class="text-sm text-blue-600 hover:underline mt-2 inline-block">
+                        <i class="fas fa-download mr-1"></i>Download Sample CSV
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Next Button -->
+        <div class="mt-8 flex justify-end">
+            <button
+                @click="uploadFile()"
+                :disabled="!selectedFile || uploading"
+                :class="!selectedFile || uploading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-900'"
+                class="px-6 py-3 bg-primary text-white rounded-lg font-medium transition"
+            >
+                <span x-show="!uploading">Next: Map Columns</span>
+                <span x-show="uploading"><i class="fas fa-spinner fa-spin mr-2"></i>Uploading...</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Step 2: Map Columns -->
+    <div x-show="step === 2" class="bg-white rounded-lg shadow p-8">
+        <h2 class="text-xl font-bold mb-4">Step 2: Map Columns</h2>
+        <p class="text-gray-600 mb-6">Match your file columns to prospect fields. We've auto-detected the most likely mappings.</p>
+
+        <div class="space-y-4">
+            <template x-for="(mapping, fileColumn) in columnMappings" :key="fileColumn">
+                <div class="flex items-center gap-4 p-4 bg-gray-50 rounded-lg">
+                    <div class="flex-1">
+                        <label class="text-sm font-medium text-gray-700">Your Column</label>
+                        <p class="font-medium text-gray-900" x-text="fileColumn"></p>
+                    </div>
+                    <i class="fas fa-arrow-right text-gray-400"></i>
+                    <div class="flex-1">
+                        <label class="text-sm font-medium text-gray-700">Maps To</label>
+                        <select
+                            x-model="columnMappings[fileColumn]"
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary"
+                        >
+                            <option value="">Skip this column</option>
+                            <option value="full_name">Full Name</option>
+                            <option value="email">Email</option>
+                            <option value="phone">Phone</option>
+                            <option value="alternate_phone">Alternate Phone</option>
+                            <option value="company">Company</option>
+                            <option value="designation">Designation</option>
+                            <option value="estimated_portfolio_value">Estimated Portfolio Value</option>
+                            <option value="referral_source">Referral Source</option>
+                            <option value="notes">Notes</option>
+                        </select>
+                    </div>
+                </div>
+            </template>
+        </div>
+
+        <div class="mt-8 flex justify-between">
+            <button
+                @click="step = 1"
+                class="px-6 py-3 bg-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-300 transition"
+            >
+                <i class="fas fa-arrow-left mr-2"></i>Back
+            </button>
+            <button
+                @click="previewImport()"
+                :disabled="previewing"
+                class="px-6 py-3 bg-primary text-white rounded-lg font-medium hover:bg-blue-900 transition"
+            >
+                <span x-show="!previewing">Next: Preview</span>
+                <span x-show="previewing"><i class="fas fa-spinner fa-spin mr-2"></i>Loading Preview...</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Step 3: Preview -->
+    <div x-show="step === 3" class="bg-white rounded-lg shadow p-8">
+        <h2 class="text-xl font-bold mb-4">Step 3: Preview & Validate</h2>
+        <p class="text-gray-600 mb-6">Review the first 10 rows of your import. Check for any errors or warnings.</p>
+
+        <!-- Summary -->
+        <div class="grid grid-cols-3 gap-4 mb-6">
+            <div class="p-4 bg-blue-50 rounded-lg">
+                <p class="text-sm text-blue-700">Total Rows</p>
+                <p class="text-2xl font-bold text-blue-900" x-text="previewData?.total_rows || 0"></p>
+            </div>
+            <div class="p-4 bg-green-50 rounded-lg">
+                <p class="text-sm text-green-700">Valid Rows</p>
+                <p class="text-2xl font-bold text-green-900" x-text="previewData?.valid_rows || 0"></p>
+            </div>
+            <div class="p-4 bg-red-50 rounded-lg">
+                <p class="text-sm text-red-700">Invalid Rows</p>
+                <p class="text-2xl font-bold text-red-900" x-text="previewData?.invalid_rows || 0"></p>
+            </div>
+        </div>
+
+        <!-- Preview Table -->
+        <div class="overflow-x-auto mb-6">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Row</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Phone</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Issues</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">
+                    <template x-for="row in previewData?.preview_rows || []" :key="row.row_number">
+                        <tr :class="!row.is_valid ? 'bg-red-50' : row.warnings.length > 0 ? 'bg-yellow-50' : ''">
+                            <td class="px-4 py-3 text-sm" x-text="row.row_number"></td>
+                            <td class="px-4 py-3 text-sm">
+                                <span x-show="row.is_valid && !row.warnings.length" class="text-green-600"><i class="fas fa-check-circle"></i></span>
+                                <span x-show="!row.is_valid" class="text-red-600"><i class="fas fa-times-circle"></i></span>
+                                <span x-show="row.is_valid && row.warnings.length > 0" class="text-yellow-600"><i class="fas fa-exclamation-triangle"></i></span>
+                            </td>
+                            <td class="px-4 py-3 text-sm" x-text="row.data.full_name || '-'"></td>
+                            <td class="px-4 py-3 text-sm" x-text="row.data.email || '-'"></td>
+                            <td class="px-4 py-3 text-sm" x-text="row.data.phone || '-'"></td>
+                            <td class="px-4 py-3 text-sm">
+                                <template x-for="error in row.errors">
+                                    <div class="text-red-600 text-xs" x-text="error"></div>
+                                </template>
+                                <template x-for="warning in row.warnings">
+                                    <div class="text-yellow-600 text-xs" x-text="warning"></div>
+                                </template>
+                            </td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Skip Duplicates Option -->
+        <div class="mb-6">
+            <label class="flex items-center">
+                <input type="checkbox" x-model="skipDuplicates" class="mr-2 rounded">
+                <span class="text-sm text-gray-700">Skip duplicate records (recommended)</span>
+            </label>
+        </div>
+
+        <div class="mt-8 flex justify-between">
+            <button
+                @click="step = 2"
+                class="px-6 py-3 bg-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-300 transition"
+            >
+                <i class="fas fa-arrow-left mr-2"></i>Back
+            </button>
+            <button
+                @click="confirmImport()"
+                :disabled="importing || previewData?.valid_rows === 0"
+                :class="importing || previewData?.valid_rows === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-900'"
+                class="px-6 py-3 bg-primary text-white rounded-lg font-medium transition"
+            >
+                <span x-show="!importing">Import <span x-text="previewData?.valid_rows || 0"></span> Prospects</span>
+                <span x-show="importing"><i class="fas fa-spinner fa-spin mr-2"></i>Importing...</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Step 4: Complete -->
+    <div x-show="step === 4" class="bg-white rounded-lg shadow p-8 text-center">
+        <div class="mb-6">
+            <i class="fas fa-check-circle text-green-600 text-6xl mb-4"></i>
+            <h2 class="text-2xl font-bold mb-2">Import Complete!</h2>
+            <p class="text-gray-600">Your prospects have been imported successfully.</p>
+        </div>
+
+        <!-- Results -->
+        <div class="grid grid-cols-2 gap-4 mb-8 max-w-md mx-auto">
+            <div class="p-4 bg-green-50 rounded-lg">
+                <p class="text-sm text-green-700">Successfully Imported</p>
+                <p class="text-3xl font-bold text-green-900" x-text="importResult?.successful_imports || 0"></p>
+            </div>
+            <div class="p-4 bg-red-50 rounded-lg">
+                <p class="text-sm text-red-700">Failed</p>
+                <p class="text-3xl font-bold text-red-900" x-text="importResult?.failed_imports || 0"></p>
+            </div>
+        </div>
+
+        <!-- Error Details -->
+        <div x-show="importResult?.errors?.length > 0" class="mb-6 text-left max-w-2xl mx-auto">
+            <h3 class="font-bold text-gray-900 mb-3">Errors:</h3>
+            <div class="space-y-2 max-h-60 overflow-y-auto">
+                <template x-for="error in importResult?.errors || []" :key="error.row">
+                    <div class="p-3 bg-red-50 border border-red-200 rounded text-sm">
+                        <span class="font-medium">Row <span x-text="error.row"></span>:</span>
+                        <span x-text="error.errors.join(', ')"></span>
+                    </div>
+                </template>
+            </div>
+        </div>
+
+        <div class="flex justify-center gap-4">
+            <button
+                @click="reset()"
+                class="px-6 py-3 bg-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-300 transition"
+            >
+                Import More
+            </button>
+            <a
+                href="/prospects"
+                class="px-6 py-3 bg-primary text-white rounded-lg font-medium hover:bg-blue-900 transition inline-block"
+            >
+                View Prospects
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function importProspectsApp() {
+    return {
+        step: 1,
+        selectedFile: null,
+        dragOver: false,
+        uploading: false,
+        previewing: false,
+        importing: false,
+        fileKey: null,
+        columnMappings: {},
+        previewData: null,
+        importResult: null,
+        skipDuplicates: true,
+
+        init() {
+            // Initialization if needed
+        },
+
+        handleFileDrop(event) {
+            this.dragOver = false;
+            const files = event.dataTransfer.files;
+            if (files.length > 0) {
+                this.selectFile(files[0]);
+            }
+        },
+
+        handleFileSelect(event) {
+            const files = event.target.files;
+            if (files.length > 0) {
+                this.selectFile(files[0]);
+            }
+        },
+
+        selectFile(file) {
+            // Validate file type
+            const validTypes = ['.csv', '.xlsx', '.xls'];
+            const fileExt = '.' + file.name.split('.').pop().toLowerCase();
+            if (!validTypes.includes(fileExt)) {
+                showToast('Please upload a CSV or Excel file', 'error');
+                return;
+            }
+
+            // Validate file size (10MB)
+            if (file.size > 10 * 1024 * 1024) {
+                showToast('File size must be less than 10MB', 'error');
+                return;
+            }
+
+            this.selectedFile = file;
+        },
+
+        async uploadFile() {
+            if (!this.selectedFile) return;
+
+            this.uploading = true;
+            try {
+                const formData = new FormData();
+                formData.append('file', this.selectedFile);
+
+                const response = await axios.post(`${API_URL}/prospects/import/upload`, formData, {
+                    headers: { 'Content-Type': 'multipart/form-data' }
+                });
+
+                this.fileKey = response.data.file_key;
+                this.columnMappings = response.data.suggested_mappings;
+                this.step = 2;
+            } catch (error) {
+                showToast('Error uploading file: ' + (error.response?.data?.detail || error.message), 'error');
+            } finally {
+                this.uploading = false;
+            }
+        },
+
+        async previewImport() {
+            this.previewing = true;
+            try {
+                // The preview is already loaded, just show step 3
+                // But we could reload with custom mappings if needed
+                const response = await axios.post(`${API_URL}/prospects/import/upload`, this.selectedFile, {
+                    headers: { 'Content-Type': 'multipart/form-data' }
+                });
+
+                this.previewData = response.data;
+                this.step = 3;
+            } catch (error) {
+                showToast('Error generating preview: ' + (error.response?.data?.detail || error.message), 'error');
+            } finally {
+                this.previewing = false;
+            }
+        },
+
+        async confirmImport() {
+            this.importing = true;
+            try {
+                const response = await axios.post(`${API_URL}/prospects/import/confirm`, {
+                    file_key: this.fileKey,
+                    column_mappings: this.columnMappings,
+                    skip_duplicates: this.skipDuplicates
+                });
+
+                this.importResult = response.data;
+                this.step = 4;
+                showToast(response.data.message, 'success');
+            } catch (error) {
+                showToast('Error importing prospects: ' + (error.response?.data?.detail || error.message), 'error');
+            } finally {
+                this.importing = false;
+            }
+        },
+
+        reset() {
+            this.step = 1;
+            this.selectedFile = null;
+            this.fileKey = null;
+            this.columnMappings = {};
+            this.previewData = null;
+            this.importResult = null;
+            this.skipDuplicates = true;
+        },
+
+        formatFileSize(bytes) {
+            if (!bytes) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+        }
+    };
+}
+</script>
+{% endblock %}

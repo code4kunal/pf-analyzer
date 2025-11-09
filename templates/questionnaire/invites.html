@@ -1,0 +1,440 @@
+{% extends "components/base.html" %}
+
+{% block title %}Client Profiling Questionnaires - GrowFolio CMS{% endblock %}
+{% block page_title %}Client Profiling Questionnaires{% endblock %}
+
+{% block content %}
+<div x-data="questionnaireApp()" x-init="loadInvites()">
+    <!-- Page Header -->
+    <div class="mb-6 flex justify-between items-center">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">Client Profiling Questionnaires</h1>
+            <p class="text-gray-600 mt-1">Send personalized questionnaires to prospects before meetings</p>
+        </div>
+        <button @click="showCreateModal = true" class="btn-primary">
+            <i class="fas fa-plus mr-2"></i>Create New Invite
+        </button>
+    </div>
+
+    <!-- Stats Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6" x-show="analytics">
+        <div class="bg-white p-6 rounded-lg shadow">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm text-gray-600 mb-1">Total Invites</p>
+                    <p class="text-3xl font-bold text-gray-900" x-text="analytics?.total_invites || 0"></p>
+                </div>
+                <div class="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                    <i class="fas fa-envelope text-blue-600 text-xl"></i>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white p-6 rounded-lg shadow">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm text-gray-600 mb-1">Completed</p>
+                    <p class="text-3xl font-bold text-green-600" x-text="analytics?.completed || 0"></p>
+                </div>
+                <div class="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+                    <i class="fas fa-check-circle text-green-600 text-xl"></i>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white p-6 rounded-lg shadow">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm text-gray-600 mb-1">Pending</p>
+                    <p class="text-3xl font-bold text-yellow-600" x-text="analytics?.pending || 0"></p>
+                </div>
+                <div class="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center">
+                    <i class="fas fa-clock text-yellow-600 text-xl"></i>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white p-6 rounded-lg shadow">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm text-gray-600 mb-1">Completion Rate</p>
+                    <p class="text-3xl font-bold text-purple-600" x-text="(analytics?.completion_rate || 0) + '%'"></p>
+                </div>
+                <div class="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
+                    <i class="fas fa-chart-line text-purple-600 text-xl"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filter Tabs -->
+    <div class="bg-white rounded-lg shadow mb-6">
+        <div class="border-b border-gray-200">
+            <nav class="flex space-x-8 px-6" aria-label="Tabs">
+                <button @click="filterStatus = null; loadInvites()"
+                        class="py-4 px-1 border-b-2 font-medium text-sm"
+                        :class="filterStatus === null ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'">
+                    All Invites
+                </button>
+                <button @click="filterStatus = 'PENDING'; loadInvites()"
+                        class="py-4 px-1 border-b-2 font-medium text-sm"
+                        :class="filterStatus === 'PENDING' ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'">
+                    Pending
+                </button>
+                <button @click="filterStatus = 'COMPLETED'; loadInvites()"
+                        class="py-4 px-1 border-b-2 font-medium text-sm"
+                        :class="filterStatus === 'COMPLETED' ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'">
+                    Completed
+                </button>
+                <button @click="filterStatus = 'EXPIRED'; loadInvites()"
+                        class="py-4 px-1 border-b-2 font-medium text-sm"
+                        :class="filterStatus === 'EXPIRED' ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'">
+                    Expired
+                </button>
+            </nav>
+        </div>
+    </div>
+
+    <!-- Invites Table -->
+    <div class="bg-white rounded-lg shadow overflow-hidden">
+        <!-- Loading State -->
+        <div x-show="loading" class="text-center py-12">
+            <div class="spinner mx-auto mb-4"></div>
+            <p class="text-gray-600">Loading invites...</p>
+        </div>
+
+        <!-- Table -->
+        <div x-show="!loading && invites.length > 0" class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Recipient</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sent Date</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expires</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Completed</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">
+                    <template x-for="invite in invites" :key="invite.id">
+                        <tr class="hover:bg-gray-50">
+                            <td class="px-6 py-4">
+                                <div class="text-sm font-medium text-gray-900" x-text="invite.recipient_name"></div>
+                                <div class="text-sm text-gray-500" x-text="invite.recipient_email"></div>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span class="px-2 py-1 text-xs font-semibold rounded-full"
+                                      :class="{
+                                          'bg-yellow-100 text-yellow-800': invite.status === 'PENDING',
+                                          'bg-green-100 text-green-800': invite.status === 'COMPLETED',
+                                          'bg-red-100 text-red-800': invite.status === 'EXPIRED'
+                                      }"
+                                      x-text="invite.status"></span>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" x-text="formatDate(invite.sent_at)"></td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                <span x-text="invite.expires_at ? formatDate(invite.expires_at) : 'Never'"></span>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                <span x-text="invite.completed_at ? formatDate(invite.completed_at) : '-'"></span>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
+                                <button @click="copyInviteLink(invite)" class="text-blue-600 hover:text-blue-900" title="Copy Link">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                                <button @click="viewInvite(invite)" class="text-green-600 hover:text-green-900" title="View Details">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                                <button x-show="invite.created_prospect_id" @click="viewProspect(invite.created_prospect_id)" class="text-purple-600 hover:text-purple-900" title="View Prospect">
+                                    <i class="fas fa-user"></i>
+                                </button>
+                                <button x-show="invite.status === 'PENDING'" @click="deleteInvite(invite.id)" class="text-red-600 hover:text-red-900" title="Delete">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Empty State -->
+        <div x-show="!loading && invites.length === 0" class="text-center py-12">
+            <i class="fas fa-envelope-open-text text-6xl text-gray-300 mb-4"></i>
+            <h3 class="text-lg font-medium text-gray-900 mb-2">No invites found</h3>
+            <p class="text-gray-500 mb-4">Create your first questionnaire invite to get started</p>
+            <button @click="showCreateModal = true" class="btn-primary">
+                <i class="fas fa-plus mr-2"></i>Create Invite
+            </button>
+        </div>
+    </div>
+
+    <!-- Create Invite Modal -->
+    <div x-show="showCreateModal" class="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50" style="display: none;">
+        <div class="bg-white rounded-lg p-8 max-w-2xl w-full mx-4 max-h-screen overflow-y-auto">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-xl font-bold text-gray-900">Create Questionnaire Invite</h3>
+                <button @click="showCreateModal = false" class="text-gray-400 hover:text-gray-600">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+
+            <form @submit.prevent="createInvite">
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Recipient Name *</label>
+                        <input type="text" x-model="newInvite.recipient_name" required
+                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Email Address *</label>
+                        <input type="email" x-model="newInvite.recipient_email" required
+                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Phone Number (Optional)</label>
+                        <input type="tel" x-model="newInvite.recipient_phone" placeholder="+91XXXXXXXXXX"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary">
+                        <p class="text-xs text-gray-500 mt-1">Include country code for WhatsApp sending</p>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Expiry (Days)</label>
+                        <select x-model="newInvite.expires_in_days"
+                                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary">
+                            <option value="7">7 days</option>
+                            <option value="14">14 days</option>
+                            <option value="30">30 days</option>
+                            <option value="60">60 days</option>
+                            <option value="90">90 days</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Custom Message (Optional)</label>
+                        <textarea x-model="newInvite.custom_message" rows="3"
+                                  placeholder="Add a personalized message..."
+                                  class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"></textarea>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Internal Notes (Optional)</label>
+                        <textarea x-model="newInvite.notes" rows="2"
+                                  placeholder="Internal notes (not visible to recipient)..."
+                                  class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"></textarea>
+                    </div>
+
+                    <div class="flex items-center">
+                        <input type="checkbox" x-model="newInvite.auto_create_prospect" id="autoCreate" class="mr-2">
+                        <label for="autoCreate" class="text-sm text-gray-700">
+                            Automatically create prospect when completed
+                        </label>
+                    </div>
+                </div>
+
+                <div class="mt-6 flex justify-end space-x-3">
+                    <button type="button" @click="showCreateModal = false" class="btn-secondary">Cancel</button>
+                    <button type="submit" class="btn-primary" :disabled="creating">
+                        <span x-show="!creating">Create Invite</span>
+                        <span x-show="creating">Creating...</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- View Invite Modal -->
+    <div x-show="showViewModal" class="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50" style="display: none;">
+        <div class="bg-white rounded-lg p-8 max-w-2xl w-full mx-4 max-h-screen overflow-y-auto">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-xl font-bold text-gray-900">Invite Details</h3>
+                <button @click="showViewModal = false" class="text-gray-400 hover:text-gray-600">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+
+            <div x-show="selectedInvite" class="space-y-4">
+                <div>
+                    <label class="text-sm font-medium text-gray-500">Recipient</label>
+                    <p class="text-base font-medium" x-text="selectedInvite?.recipient_name"></p>
+                    <p class="text-sm text-gray-600" x-text="selectedInvite?.recipient_email"></p>
+                </div>
+
+                <div>
+                    <label class="text-sm font-medium text-gray-500">Invite Link</label>
+                    <div class="flex items-center space-x-2 mt-1">
+                        <input type="text" :value="getInviteUrl(selectedInvite)" readonly
+                               class="flex-1 px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-sm">
+                        <button @click="copyInviteLink(selectedInvite)" class="btn-secondary">
+                            <i class="fas fa-copy mr-2"></i>Copy
+                        </button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="text-sm font-medium text-gray-500">Status</label>
+                        <p class="text-base" x-text="selectedInvite?.status"></p>
+                    </div>
+                    <div>
+                        <label class="text-sm font-medium text-gray-500">Sent Date</label>
+                        <p class="text-base" x-text="formatDate(selectedInvite?.sent_at)"></p>
+                    </div>
+                    <div>
+                        <label class="text-sm font-medium text-gray-500">Expires</label>
+                        <p class="text-base" x-text="selectedInvite?.expires_at ? formatDate(selectedInvite.expires_at) : 'Never'"></p>
+                    </div>
+                    <div>
+                        <label class="text-sm font-medium text-gray-500">Completed</label>
+                        <p class="text-base" x-text="selectedInvite?.completed_at ? formatDate(selectedInvite.completed_at) : 'Not yet'"></p>
+                    </div>
+                </div>
+
+                <div x-show="selectedInvite?.custom_message">
+                    <label class="text-sm font-medium text-gray-500">Custom Message</label>
+                    <p class="text-base" x-text="selectedInvite?.custom_message"></p>
+                </div>
+
+                <div x-show="selectedInvite?.notes">
+                    <label class="text-sm font-medium text-gray-500">Internal Notes</label>
+                    <p class="text-base" x-text="selectedInvite?.notes"></p>
+                </div>
+
+                <div x-show="selectedInvite?.created_prospect_id" class="pt-4 border-t">
+                    <button @click="viewProspect(selectedInvite.created_prospect_id)" class="btn-primary w-full">
+                        <i class="fas fa-user mr-2"></i>View Created Prospect
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function questionnaireApp() {
+    return {
+        invites: [],
+        analytics: null,
+        loading: false,
+        creating: false,
+        filterStatus: null,
+        showCreateModal: false,
+        showViewModal: false,
+        selectedInvite: null,
+        newInvite: {
+            recipient_name: '',
+            recipient_email: '',
+            recipient_phone: '',
+            expires_in_days: 7,
+            custom_message: '',
+            notes: '',
+            auto_create_prospect: true
+        },
+
+        async loadInvites() {
+            this.loading = true;
+            try {
+                let url = `${API_URL}/questionnaire/invites`;
+                if (this.filterStatus) {
+                    url += `?status=${this.filterStatus}`;
+                }
+
+                const response = await axios.get(url);
+                this.invites = response.data;
+
+                // Load analytics
+                const analyticsResponse = await axios.get(`${API_URL}/questionnaire/analytics`);
+                this.analytics = analyticsResponse.data;
+            } catch (error) {
+                showToast('Error loading invites: ' + (error.response?.data?.detail || error.message), 'error');
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        async createInvite() {
+            this.creating = true;
+            try {
+                const response = await axios.post(`${API_URL}/questionnaire/invites`, this.newInvite);
+                showToast('Invite created successfully!', 'success');
+                this.showCreateModal = false;
+                this.resetNewInvite();
+                this.loadInvites();
+
+                // Show the invite link
+                const inviteUrl = response.data.invite_url;
+                this.copyToClipboard(inviteUrl);
+                showToast('Invite link copied to clipboard!', 'success');
+            } catch (error) {
+                showToast('Error creating invite: ' + (error.response?.data?.detail || error.message), 'error');
+            } finally {
+                this.creating = false;
+            }
+        },
+
+        resetNewInvite() {
+            this.newInvite = {
+                recipient_name: '',
+                recipient_email: '',
+                recipient_phone: '',
+                expires_in_days: 7,
+                custom_message: '',
+                notes: '',
+                auto_create_prospect: true
+            };
+        },
+
+        viewInvite(invite) {
+            this.selectedInvite = invite;
+            this.showViewModal = true;
+        },
+
+        getInviteUrl(invite) {
+            return `${window.location.origin}/questionnaire/${invite.invite_token}`;
+        },
+
+        async copyInviteLink(invite) {
+            const url = this.getInviteUrl(invite);
+            this.copyToClipboard(url);
+            showToast('Invite link copied to clipboard!', 'success');
+        },
+
+        copyToClipboard(text) {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+        },
+
+        viewProspect(prospectId) {
+            window.location.href = `/prospects/${prospectId}`;
+        },
+
+        async deleteInvite(inviteId) {
+            if (!confirm('Are you sure you want to delete this invite?')) return;
+
+            try {
+                await axios.delete(`${API_URL}/questionnaire/invites/${inviteId}`);
+                showToast('Invite deleted successfully', 'success');
+                this.loadInvites();
+            } catch (error) {
+                showToast('Error deleting invite: ' + (error.response?.data?.detail || error.message), 'error');
+            }
+        },
+
+        formatDate(dateString) {
+            if (!dateString) return '-';
+            const date = new Date(dateString);
+            return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        }
+    };
+}
+</script>
+{% endblock %}

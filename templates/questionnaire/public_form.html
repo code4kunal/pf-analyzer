@@ -1,0 +1,1111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Client Profiling Questionnaire - GrowFolio</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .question-card {
+            transition: all 0.3s ease;
+        }
+        .option-card {
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+        .option-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        .option-card.selected {
+            border-color: #3B82F6;
+            background-color: #EFF6FF;
+        }
+        .progress-step {
+            transition: all 0.3s ease;
+        }
+        .progress-step.active {
+            background-color: #3B82F6;
+            color: white;
+        }
+        .progress-step.completed {
+            background-color: #10B981;
+            color: white;
+        }
+        .tooltip {
+            position: relative;
+            display: inline-block;
+        }
+        .tooltip .tooltiptext {
+            visibility: hidden;
+            width: 300px;
+            background-color: #1F2937;
+            color: #fff;
+            text-align: left;
+            border-radius: 6px;
+            padding: 12px;
+            position: absolute;
+            z-index: 1;
+            bottom: 125%;
+            left: 50%;
+            margin-left: -150px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            font-size: 0.875rem;
+            line-height: 1.4;
+        }
+        .tooltip:hover .tooltiptext {
+            visibility: visible;
+            opacity: 1;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div x-data="questionnaireApp()" x-init="init()" class="min-h-screen">
+        <!-- Header -->
+        <div class="bg-gradient-to-r from-blue-600 to-blue-800 text-white py-6 shadow-lg">
+            <div class="container mx-auto px-4">
+                <h1 class="text-3xl font-bold">Client Profiling Questionnaire</h1>
+                <p class="mt-2 text-blue-100">Help us understand your financial goals and create personalized investment plans</p>
+            </div>
+        </div>
+
+        <!-- Loading State -->
+        <div x-show="loading" class="container mx-auto px-4 py-12 text-center">
+            <div class="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+            <p class="text-gray-600">Loading questionnaire...</p>
+        </div>
+
+        <!-- Error State -->
+        <div x-show="error && !loading" class="container mx-auto px-4 py-12">
+            <div class="max-w-2xl mx-auto bg-red-50 border border-red-200 rounded-lg p-6 text-center">
+                <i class="fas fa-exclamation-circle text-red-500 text-5xl mb-4"></i>
+                <h2 class="text-2xl font-bold text-red-900 mb-2">Oops! Something went wrong</h2>
+                <p class="text-red-700" x-text="error"></p>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div x-show="!loading && !error && !submitted" class="container mx-auto px-4 py-8">
+            <div class="max-w-4xl mx-auto">
+                <!-- Welcome Message -->
+                <div x-show="!started" class="bg-white rounded-lg shadow-lg p-8 mb-8">
+                    <h2 class="text-2xl font-bold text-gray-900 mb-4">
+                        Welcome <span x-text="inviteData?.recipient_name" class="text-blue-600"></span>!
+                    </h2>
+
+                    <div x-show="inviteData?.custom_message" class="bg-blue-50 border-l-4 border-blue-500 p-4 mb-6">
+                        <p class="text-gray-700" x-text="inviteData?.custom_message"></p>
+                    </div>
+
+                    <div class="prose prose-blue max-w-none mb-6">
+                        <p class="text-gray-700 mb-4">Thank you for taking the time to complete this questionnaire. This will help us:</p>
+                        <ul class="space-y-2 text-gray-700">
+                            <li><i class="fas fa-check text-green-500 mr-2"></i>Understand your financial goals and aspirations</li>
+                            <li><i class="fas fa-check text-green-500 mr-2"></i>Assess your risk profile with detailed explanations</li>
+                            <li><i class="fas fa-check text-green-500 mr-2"></i>Prepare 2-3 personalized investment plans before our meeting</li>
+                            <li><i class="fas fa-check text-green-500 mr-2"></i>Save time and make our discussion more productive</li>
+                        </ul>
+
+                        <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mt-6">
+                            <p class="text-sm text-yellow-800">
+                                <i class="fas fa-lightbulb mr-2"></i>
+                                <strong>Pro Tip:</strong> Every question includes detailed explanations with real examples.
+                                Take your time to understand each concept - this is an educational journey!
+                            </p>
+                        </div>
+
+                        <div class="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div class="text-center p-4 bg-gray-50 rounded-lg">
+                                <i class="fas fa-clock text-blue-600 text-2xl mb-2"></i>
+                                <p class="text-sm font-medium text-gray-900">5-7 Minutes</p>
+                                <p class="text-xs text-gray-600">To Complete</p>
+                            </div>
+                            <div class="text-center p-4 bg-gray-50 rounded-lg">
+                                <i class="fas fa-clipboard-check text-green-600 text-2xl mb-2"></i>
+                                <p class="text-sm font-medium text-gray-900">30+ Questions</p>
+                                <p class="text-xs text-gray-600">Comprehensive Profile</p>
+                            </div>
+                            <div class="text-center p-4 bg-gray-50 rounded-lg">
+                                <i class="fas fa-lock text-purple-600 text-2xl mb-2"></i>
+                                <p class="text-sm font-medium text-gray-900">100% Secure</p>
+                                <p class="text-xs text-gray-600">Your Data is Safe</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button @click="startQuestionnaire()" class="w-full bg-blue-600 text-white py-4 px-6 rounded-lg font-semibold hover:bg-blue-700 transition duration-200 text-lg">
+                        <i class="fas fa-play mr-2"></i>Start Questionnaire
+                    </button>
+                </div>
+
+                <!-- Progress Bar -->
+                <div x-show="started" class="bg-white rounded-lg shadow-lg p-6 mb-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-lg font-semibold text-gray-900">Your Progress</h3>
+                        <span class="text-sm text-gray-600" x-text="`${currentSection + 1} of ${sections.length}`"></span>
+                    </div>
+                    <div class="relative">
+                        <div class="overflow-hidden h-2 text-xs flex rounded bg-gray-200">
+                            <div :style="`width: ${progress}%`" class="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-blue-600 transition-all duration-500"></div>
+                        </div>
+                        <p class="text-xs text-gray-600 mt-2 text-right" x-text="`${Math.round(progress)}% Complete`"></p>
+                    </div>
+                </div>
+
+                <!-- Questionnaire Sections -->
+                <div x-show="started">
+                    <!-- Section 1: Personal Information -->
+                    <div x-show="currentSection === 0" class="bg-white rounded-lg shadow-lg p-8 mb-6 question-card">
+                        <h2 class="text-2xl font-bold text-gray-900 mb-6">Personal Information</h2>
+
+                        <div class="space-y-6">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    Full Name <span class="text-red-500">*</span>
+                                </label>
+                                <input type="text" x-model="formData.full_name"
+                                       :class="hasError('full_name') ? 'border-red-500' : 'border-gray-300'"
+                                       class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                <p x-show="hasError('full_name')" x-text="getError('full_name')" class="text-red-500 text-sm mt-1"></p>
+                            </div>
+
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        Email Address <span class="text-red-500">*</span>
+                                    </label>
+                                    <input type="email" x-model="formData.email"
+                                           :class="hasError('email') ? 'border-red-500' : 'border-gray-300'"
+                                           class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                    <p x-show="hasError('email')" x-text="getError('email')" class="text-red-500 text-sm mt-1"></p>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        Phone Number <span class="text-red-500">*</span>
+                                    </label>
+                                    <input type="tel" x-model="formData.phone" placeholder="+91XXXXXXXXXX"
+                                           :class="hasError('phone') ? 'border-red-500' : 'border-gray-300'"
+                                           class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                    <p x-show="hasError('phone')" x-text="getError('phone')" class="text-red-500 text-sm mt-1"></p>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Date of Birth</label>
+                                    <input type="date" x-model="formData.date_of_birth"
+                                           class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Occupation</label>
+                                    <input type="text" x-model="formData.occupation" placeholder="e.g., Software Engineer, Business Owner"
+                                           class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    Annual Income (₹)
+                                    <span class="tooltip ml-1">
+                                        <i class="fas fa-info-circle text-blue-500 cursor-help"></i>
+                                        <span class="tooltiptext">Your total annual income from all sources. This helps us understand your financial capacity.</span>
+                                    </span>
+                                </label>
+                                <input type="number" x-model="formData.annual_income" placeholder="e.g., 1200000"
+                                       class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Section 2: Financial Situation -->
+                    <div x-show="currentSection === 1" class="bg-white rounded-lg shadow-lg p-8 mb-6 question-card">
+                        <h2 class="text-2xl font-bold text-gray-900 mb-2">Financial Situation</h2>
+                        <p class="text-gray-600 mb-6">Help us understand your current financial position</p>
+
+                        <div class="space-y-6">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        Monthly Income (₹)
+                                        <span class="tooltip ml-1">
+                                            <i class="fas fa-info-circle text-blue-500 cursor-help"></i>
+                                            <span class="tooltiptext">Your regular monthly income after taxes. For business owners, use average monthly profit.</span>
+                                        </span>
+                                    </label>
+                                    <input type="number" x-model="formData.monthly_income" placeholder="e.g., 100000"
+                                           class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        Monthly Expenses (₹)
+                                        <span class="tooltip ml-1">
+                                            <i class="fas fa-info-circle text-blue-500 cursor-help"></i>
+                                            <span class="tooltiptext">All regular monthly expenses including EMIs, rent, groceries, utilities, etc.</span>
+                                        </span>
+                                    </label>
+                                    <input type="number" x-model="formData.monthly_expenses" placeholder="e.g., 50000"
+                                           class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        Existing Investments (₹)
+                                        <span class="tooltip ml-1">
+                                            <i class="fas fa-info-circle text-blue-500 cursor-help"></i>
+                                            <span class="tooltiptext">Current value of all your investments: MF, stocks, FD, PPF, real estate, etc.</span>
+                                        </span>
+                                    </label>
+                                    <input type="number" x-model="formData.existing_investments" placeholder="e.g., 500000"
+                                           class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        Existing Liabilities (₹)
+                                        <span class="tooltip ml-1">
+                                            <i class="fas fa-info-circle text-blue-500 cursor-help"></i>
+                                            <span class="tooltiptext">Total outstanding loans: home loan, car loan, personal loan, credit card debt, etc.</span>
+                                        </span>
+                                    </label>
+                                    <input type="number" x-model="formData.existing_liabilities" placeholder="e.g., 2000000"
+                                           class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    Emergency Fund (Months of Expenses Covered)
+                                    <span class="tooltip ml-1">
+                                        <i class="fas fa-info-circle text-blue-500 cursor-help"></i>
+                                        <span class="tooltiptext">How many months of expenses can you cover with liquid savings? Recommended: 6-12 months.</span>
+                                    </span>
+                                </label>
+                                <select x-model="formData.emergency_fund_months"
+                                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                    <option value="">Select...</option>
+                                    <option value="0">No emergency fund</option>
+                                    <option value="3">3 months</option>
+                                    <option value="6">6 months</option>
+                                    <option value="12">12 months</option>
+                                    <option value="18">18+ months</option>
+                                </select>
+                            </div>
+
+                            <div x-show="formData.monthly_income && formData.monthly_expenses" class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                                <p class="text-sm font-medium text-blue-900 mb-2">Quick Analysis:</p>
+                                <p class="text-sm text-blue-800">
+                                    Monthly Surplus: <strong>₹<span x-text="(formData.monthly_income - formData.monthly_expenses).toLocaleString('en-IN')"></span></strong>
+                                    (<span x-text="Math.round((formData.monthly_income - formData.monthly_expenses) / formData.monthly_income * 100)"></span>% savings rate)
+                                </p>
+                                <p class="text-xs text-blue-700 mt-1">
+                                    <template x-if="(formData.monthly_income - formData.monthly_expenses) / formData.monthly_income >= 0.20">
+                                        ✅ Excellent! 20%+ savings rate is healthy
+                                    </template>
+                                    <template x-if="(formData.monthly_income - formData.monthly_expenses) / formData.monthly_income < 0.20 && (formData.monthly_income - formData.monthly_expenses) / formData.monthly_income >= 0.10">
+                                        ⚠️ Good, but try to increase to 20%+
+                                    </template>
+                                    <template x-if="(formData.monthly_income - formData.monthly_expenses) / formData.monthly_income < 0.10">
+                                        ⚠️ Consider reviewing expenses to increase savings
+                                    </template>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Section 3: Investment Preferences -->
+                    <div x-show="currentSection === 2" class="bg-white rounded-lg shadow-lg p-8 mb-6 question-card">
+                        <h2 class="text-2xl font-bold text-gray-900 mb-2">Investment Preferences</h2>
+                        <p class="text-gray-600 mb-6">Tell us about your investment experience and capacity</p>
+
+                        <!-- Validation Error Banners -->
+                        <div x-show="hasError('investment_timeline')" class="bg-red-50 border-l-4 border-red-500 p-4 mb-4">
+                            <div class="flex items-start">
+                                <i class="fas fa-exclamation-circle text-red-500 mt-1 mr-3"></i>
+                                <p class="text-sm text-red-700" x-text="getError('investment_timeline')"></p>
+                            </div>
+                        </div>
+
+                        <div x-show="hasError('investment_capacity')" class="bg-red-50 border-l-4 border-red-500 p-4 mb-4">
+                            <div class="flex items-start">
+                                <i class="fas fa-exclamation-circle text-red-500 mt-1 mr-3"></i>
+                                <p class="text-sm text-red-700" x-text="getError('investment_capacity')"></p>
+                            </div>
+                        </div>
+
+                        <div class="space-y-6">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-3">Investment Experience Level</label>
+                                <div class="space-y-2">
+                                    <template x-for="level in ['Beginner', 'Intermediate', 'Advanced']" :key="level">
+                                        <div @click="formData.investment_experience = level"
+                                             class="option-card border-2 rounded-lg p-4"
+                                             :class="formData.investment_experience === level ? 'selected' : 'border-gray-200'">
+                                            <div class="flex items-start">
+                                                <div class="flex-shrink-0 mr-3">
+                                                    <i class="fas fa-check-circle text-xl" :class="formData.investment_experience === level ? 'text-blue-600' : 'text-gray-300'"></i>
+                                                </div>
+                                                <div>
+                                                    <p class="font-medium text-gray-900" x-text="level"></p>
+                                                    <p class="text-sm text-gray-600" x-text="getExperienceDescription(level)"></p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-3">
+                                    Preferred Investment Types (Select all that interest you)
+                                </label>
+                                <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+                                    <template x-for="type in ['Equity/Stocks', 'Mutual Funds', 'ETF', 'Bonds', 'Insurance', 'Real Estate']" :key="type">
+                                        <div @click="togglePreferredType(type)"
+                                             class="option-card border-2 rounded-lg p-3 text-center"
+                                             :class="formData.preferred_investment_types.includes(type) ? 'selected' : 'border-gray-200'">
+                                            <i class="fas fa-check-circle text-lg mb-1" :class="formData.preferred_investment_types.includes(type) ? 'text-blue-600' : 'text-gray-300'"></i>
+                                            <p class="text-sm font-medium text-gray-900" x-text="type"></p>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-3">
+                                    Investment Timeline <span class="text-red-500">*</span>
+                                </label>
+                                <select x-model="formData.investment_timeline"
+                                        :class="hasError('investment_timeline') ? 'border-red-500' : 'border-gray-300'"
+                                        class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                    <option value="">Select your investment timeline...</option>
+                                    <option value="Short-term (<3 years)">Short-term (&lt;3 years)</option>
+                                    <option value="Medium-term (3-7 years)">Medium-term (3-7 years)</option>
+                                    <option value="Long-term (>7 years)">Long-term (&gt;7 years)</option>
+                                </select>
+                            </div>
+
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        Monthly SIP Capacity (₹) <span class="text-red-500">*</span>
+                                        <span class="tooltip ml-1">
+                                            <i class="fas fa-info-circle text-blue-500 cursor-help"></i>
+                                            <span class="tooltiptext">How much can you invest monthly through SIP? Recommended: 15-20% of monthly income.</span>
+                                        </span>
+                                    </label>
+                                    <input type="number" x-model="formData.monthly_investment_capacity" placeholder="e.g., 25000"
+                                           :class="hasError('investment_capacity') ? 'border-red-500' : 'border-gray-300'"
+                                           class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        Lumpsum Available (₹) <span class="text-red-500">*</span>
+                                        <span class="tooltip ml-1">
+                                            <i class="fas fa-info-circle text-blue-500 cursor-help"></i>
+                                            <span class="tooltiptext">One-time investment amount you can deploy now. Can be invested gradually (STP).</span>
+                                        </span>
+                                    </label>
+                                    <input type="number" x-model="formData.lumpsum_availability" placeholder="e.g., 500000"
+                                           :class="hasError('investment_capacity') ? 'border-red-500' : 'border-gray-300'"
+                                           class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                </div>
+                            </div>
+
+                            <p class="text-sm text-gray-600 bg-blue-50 border border-blue-200 rounded-lg p-3">
+                                <i class="fas fa-info-circle text-blue-600 mr-2"></i>
+                                <strong>Note:</strong> Provide at least one - Monthly SIP or Lumpsum amount (or both) to create portfolio options
+                            </p>
+
+                            <div x-show="formData.monthly_investment_capacity" class="bg-green-50 border border-green-200 rounded-lg p-4">
+                                <p class="text-sm font-medium text-green-900 mb-2">SIP Wealth Projection:</p>
+                                <p class="text-sm text-green-800">
+                                    ₹<span x-text="formData.monthly_investment_capacity.toLocaleString('en-IN')"></span>/month SIP for 20 years:
+                                </p>
+                                <ul class="text-xs text-green-700 mt-2 space-y-1">
+                                    <li>@ 12% returns = ₹<span x-text="calculateSIPValue(formData.monthly_investment_capacity, 20, 12).toLocaleString('en-IN')"></span></li>
+                                    <li>@ 15% returns = ₹<span x-text="calculateSIPValue(formData.monthly_investment_capacity, 20, 15).toLocaleString('en-IN')"></span></li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Section 4: Risk Assessment -->
+                    <div x-show="currentSection === 3" class="bg-white rounded-lg shadow-lg p-8 mb-6 question-card">
+                        <h2 class="text-2xl font-bold text-gray-900 mb-2">
+                            Risk Assessment <span class="text-red-500">*</span>
+                        </h2>
+                        <p class="text-gray-600 mb-6">Understanding your risk tolerance with detailed explanations</p>
+
+                        <!-- Validation Error Banner -->
+                        <div x-show="hasError('risk_assessment')" class="bg-red-50 border-l-4 border-red-500 p-4 mb-6">
+                            <div class="flex items-start">
+                                <i class="fas fa-exclamation-circle text-red-500 mt-1 mr-3"></i>
+                                <p class="text-sm text-red-700" x-text="getError('risk_assessment')"></p>
+                            </div>
+                        </div>
+
+                        <template x-for="(question, index) in questionnaire" :key="question.question_id">
+                            <div class="mb-8 p-6 bg-gray-50 rounded-lg">
+                                <!-- Question -->
+                                <h3 class="text-lg font-semibold text-gray-900 mb-3">
+                                    <span class="inline-block w-8 h-8 bg-blue-600 text-white rounded-full text-center mr-2" x-text="index + 1"></span>
+                                    <span x-text="question.question_text"></span>
+                                </h3>
+
+                                <!-- Explanation -->
+                                <div x-show="question.explanation" class="bg-blue-50 border-l-4 border-blue-500 p-4 mb-4">
+                                    <p class="text-sm font-medium text-blue-900 mb-2">
+                                        <i class="fas fa-lightbulb mr-2"></i>Understanding This Question:
+                                    </p>
+                                    <p class="text-sm text-blue-800" x-text="question.explanation"></p>
+                                </div>
+
+                                <!-- Help Text -->
+                                <div x-show="question.help_text" class="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
+                                    <p class="text-xs text-yellow-800" x-text="question.help_text"></p>
+                                </div>
+
+                                <!-- Examples (if available) -->
+                                <div x-show="question.examples" class="bg-green-50 border border-green-200 rounded-lg p-3 mb-4">
+                                    <p class="text-xs font-medium text-green-900 mb-2">Real Examples:</p>
+                                    <ul class="text-xs text-green-800 space-y-1">
+                                        <template x-for="example in question.examples" :key="example">
+                                            <li x-text="'• ' + example"></li>
+                                        </template>
+                                    </ul>
+                                </div>
+
+                                <!-- Options -->
+                                <div class="space-y-3">
+                                    <template x-for="option in question.options" :key="option.answer">
+                                        <div @click="selectRiskAnswer(question.question_id, question.question_text, option.answer, option.score)"
+                                             class="option-card border-2 rounded-lg p-4 cursor-pointer transition-all"
+                                             :class="isRiskAnswerSelected(question.question_id, option.answer) ? 'selected border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-300'">
+                                            <div class="flex items-start">
+                                                <div class="flex-shrink-0 mr-3 mt-1">
+                                                    <i class="fas fa-check-circle text-xl transition-colors"
+                                                       :class="isRiskAnswerSelected(question.question_id, option.answer) ? 'text-blue-600' : 'text-gray-300'"></i>
+                                                </div>
+                                                <div class="flex-1">
+                                                    <p class="font-medium text-gray-900 mb-1" x-text="option.answer"></p>
+                                                    <p class="text-sm text-gray-600" x-text="option.description"></p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                        </template>
+
+                        <!-- Risk Score Preview -->
+                        <div x-show="getRiskScore() > 0" class="bg-purple-50 border-2 border-purple-300 rounded-lg p-6 sticky bottom-4">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <h3 class="font-semibold text-purple-900 mb-1">Your Preliminary Risk Profile</h3>
+                                    <p class="text-sm text-purple-700">
+                                        <span x-text="formData.risk_questionnaire_responses.length"></span>/10 questions answered
+                                    </p>
+                                </div>
+                                <div class="text-right">
+                                    <p class="text-3xl font-bold text-purple-600" x-text="`${getRiskScore()}/40`"></p>
+                                    <p class="text-sm font-medium text-purple-700" x-text="getPreliminaryCategory()"></p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Section 5: Financial Goals -->
+                    <div x-show="currentSection === 4" class="bg-white rounded-lg shadow-lg p-8 mb-6 question-card">
+                        <h2 class="text-2xl font-bold text-gray-900 mb-2">Financial Goals</h2>
+                        <p class="text-gray-600 mb-6">What are you investing for? Add your financial goals below</p>
+
+                        <div class="space-y-6">
+                            <!-- Existing Goals -->
+                            <template x-for="(goal, index) in formData.financial_goals" :key="index">
+                                <div class="p-6 border-2 border-gray-200 rounded-lg bg-gray-50">
+                                    <div class="flex justify-between items-start mb-4">
+                                        <h3 class="font-semibold text-gray-900 text-lg">
+                                            <i class="fas fa-bullseye text-blue-600 mr-2"></i>
+                                            Goal #<span x-text="index + 1"></span>
+                                        </h3>
+                                        <button @click="removeGoal(index)" class="text-red-600 hover:text-red-800 transition-colors">
+                                            <i class="fas fa-trash"></i> Remove
+                                        </button>
+                                    </div>
+
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-2">Goal Type *</label>
+                                            <select x-model="goal.goal_type" required
+                                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                                <option value="RETIREMENT">Retirement Planning</option>
+                                                <option value="EDUCATION">Child's Education</option>
+                                                <option value="HOUSE">House Purchase</option>
+                                                <option value="CAR">Car Purchase</option>
+                                                <option value="MARRIAGE">Marriage/Wedding</option>
+                                                <option value="WEALTH_CREATION">Wealth Creation</option>
+                                                <option value="VACATION">Dream Vacation</option>
+                                                <option value="EMERGENCY_FUND">Emergency Fund</option>
+                                                <option value="OTHER">Other</option>
+                                            </select>
+                                        </div>
+
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-2">Goal Name *</label>
+                                            <input type="text" x-model="goal.goal_name" placeholder="e.g., Retirement at 60" required
+                                                   class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                        </div>
+
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                                Target Amount (₹) *
+                                                <span class="tooltip ml-1">
+                                                    <i class="fas fa-info-circle text-blue-500 cursor-help"></i>
+                                                    <span class="tooltiptext">How much money you need for this goal in today's value. We'll adjust for inflation.</span>
+                                                </span>
+                                            </label>
+                                            <input type="number" x-model="goal.target_amount" placeholder="e.g., 10000000" required min="1"
+                                                   class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                        </div>
+
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                                Years to Goal *
+                                                <span class="tooltip ml-1">
+                                                    <i class="fas fa-info-circle text-blue-500 cursor-help"></i>
+                                                    <span class="tooltiptext">How many years until you need this money? Longer timeframes allow for higher returns.</span>
+                                                </span>
+                                            </label>
+                                            <input type="number" x-model="goal.years_to_goal" placeholder="e.g., 20" required min="1" max="50"
+                                                   class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                        </div>
+
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-2">Priority</label>
+                                            <select x-model="goal.priority"
+                                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                                <option value="HIGH">High - Must achieve</option>
+                                                <option value="MEDIUM">Medium - Important</option>
+                                                <option value="LOW">Low - Nice to have</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <!-- Goal Calculation Preview -->
+                                    <div x-show="goal.target_amount && goal.years_to_goal" class="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
+                                        <p class="text-sm font-medium text-blue-900 mb-2">Quick Projection:</p>
+                                        <p class="text-sm text-blue-800">
+                                            With 6% inflation, ₹<span x-text="goal.target_amount.toLocaleString('en-IN')"></span> today will need
+                                            <strong>₹<span x-text="calculateInflationAdjusted(goal.target_amount, goal.years_to_goal).toLocaleString('en-IN')"></span></strong>
+                                            in <span x-text="goal.years_to_goal"></span> years
+                                        </p>
+                                        <p class="text-xs text-blue-700 mt-1">
+                                            Required monthly SIP @ 12%: <strong>₹<span x-text="calculateRequiredSIP(goal.target_amount, goal.years_to_goal).toLocaleString('en-IN')"></span></strong>
+                                        </p>
+                                    </div>
+                                </div>
+                            </template>
+
+                            <!-- Add Goal Button -->
+                            <button @click="addGoal()"
+                                    class="w-full py-4 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-blue-500 hover:text-blue-600 hover:bg-blue-50 transition-all">
+                                <i class="fas fa-plus-circle mr-2 text-xl"></i>
+                                <span class="font-medium">Add Financial Goal</span>
+                            </button>
+
+                            <!-- Info Box -->
+                            <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                                <p class="text-sm text-yellow-800">
+                                    <i class="fas fa-lightbulb mr-2"></i>
+                                    <strong>Tip:</strong> It's okay if you don't have specific goals yet. We can discuss and define them during our meeting.
+                                    Even general goals like "Retirement" or "Wealth Creation" are helpful!
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Section 6: Additional Information -->
+                    <div x-show="currentSection === 5" class="bg-white rounded-lg shadow-lg p-8 mb-6 question-card">
+                        <h2 class="text-2xl font-bold text-gray-900 mb-2">Additional Information</h2>
+                        <p class="text-gray-600 mb-6">Help us serve you better</p>
+
+                        <div class="space-y-6">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    Do you currently have a financial advisor?
+                                </label>
+                                <select x-model="formData.current_advisor"
+                                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                    <option value="">Select...</option>
+                                    <option value="No">No, I don't have an advisor</option>
+                                    <option value="Yes, but looking for change">Yes, but looking for a change</option>
+                                    <option value="Yes, satisfied">Yes, and I'm satisfied</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    How did you hear about us?
+                                </label>
+                                <select x-model="formData.how_did_you_hear"
+                                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                    <option value="">Select...</option>
+                                    <option value="Referral">Referral from friend/family</option>
+                                    <option value="Google Search">Google Search</option>
+                                    <option value="Social Media">Social Media (LinkedIn, Facebook, etc.)</option>
+                                    <option value="Advertisement">Advertisement</option>
+                                    <option value="Event/Seminar">Event/Seminar/Webinar</option>
+                                    <option value="Existing Client">I'm already your client</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    Specific Requirements or Questions
+                                </label>
+                                <textarea x-model="formData.specific_requirements" rows="5"
+                                          placeholder="Any specific investment needs, questions, or concerns you'd like to discuss? For example:&#10;• Interested in specific sectors (IT, pharma, etc.)&#10;• Tax-saving investments (ELSS, PPF)&#10;• Existing portfolio review&#10;• Any concerns or doubts..."
+                                          class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"></textarea>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    Preferred Time for Contact
+                                </label>
+                                <select x-model="formData.preferred_contact_time"
+                                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                    <option value="">Select...</option>
+                                    <option value="Morning (9 AM - 12 PM)">Morning (9 AM - 12 PM)</option>
+                                    <option value="Afternoon (12 PM - 5 PM)">Afternoon (12 PM - 5 PM)</option>
+                                    <option value="Evening (5 PM - 8 PM)">Evening (5 PM - 8 PM)</option>
+                                    <option value="Anytime">Anytime - I'm flexible</option>
+                                </select>
+                            </div>
+
+                            <!-- Privacy Note -->
+                            <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+                                <p class="text-sm text-green-900">
+                                    <i class="fas fa-lock mr-2"></i>
+                                    <strong>Privacy & Security:</strong> All your information is encrypted and stored securely.
+                                    We will never share your data with third parties. Your information will only be used to provide you with personalized investment recommendations.
+                                </p>
+                            </div>
+
+                            <!-- Summary Box -->
+                            <div class="bg-gradient-to-r from-blue-50 to-purple-50 border-2 border-blue-200 rounded-lg p-6">
+                                <h3 class="font-bold text-gray-900 mb-4 text-lg">
+                                    <i class="fas fa-clipboard-check text-blue-600 mr-2"></i>
+                                    Ready to Submit?
+                                </h3>
+                                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                                    <div class="text-center">
+                                        <p class="text-2xl font-bold text-blue-600" x-text="formData.risk_questionnaire_responses.length"></p>
+                                        <p class="text-xs text-gray-600">Risk Questions Answered</p>
+                                    </div>
+                                    <div class="text-center">
+                                        <p class="text-2xl font-bold text-green-600" x-text="formData.financial_goals.length"></p>
+                                        <p class="text-xs text-gray-600">Financial Goals Added</p>
+                                    </div>
+                                    <div class="text-center">
+                                        <p class="text-2xl font-bold text-purple-600" x-text="getPreliminaryCategory().split(' ')[0]"></p>
+                                        <p class="text-xs text-gray-600">Risk Profile</p>
+                                    </div>
+                                </div>
+                                <p class="text-sm text-gray-700 text-center">
+                                    Click "Submit Questionnaire" below to complete your profile.
+                                    Our team will review and contact you within 24 hours!
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Submission Error Banner -->
+                    <div x-show="hasError('submit')" class="bg-red-50 border-l-4 border-red-500 p-4 mb-6">
+                        <div class="flex items-start">
+                            <i class="fas fa-exclamation-triangle text-red-500 mt-1 mr-3"></i>
+                            <div>
+                                <p class="font-medium text-red-800">Submission Failed</p>
+                                <p class="text-sm text-red-700 mt-1" x-text="getError('submit')"></p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Navigation Buttons -->
+                    <div class="flex justify-between mt-8">
+                        <button @click="previousSection()" x-show="currentSection > 0"
+                                class="px-6 py-3 border border-gray-300 rounded-lg font-medium text-gray-700 hover:bg-gray-50">
+                            <i class="fas fa-arrow-left mr-2"></i>Previous
+                        </button>
+                        <div x-show="currentSection === 0"></div>
+
+                        <button @click="nextSection()" x-show="currentSection < sections.length - 1"
+                                class="px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700">
+                            Next<i class="fas fa-arrow-right ml-2"></i>
+                        </button>
+
+                        <button @click="submitQuestionnaire()" x-show="currentSection === sections.length - 1"
+                                :disabled="submitting"
+                                class="px-6 py-3 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:opacity-50">
+                            <span x-show="!submitting">Submit Questionnaire</span>
+                            <span x-show="submitting">Submitting...</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Success State -->
+        <div x-show="submitted" class="container mx-auto px-4 py-12">
+            <div class="max-w-2xl mx-auto bg-white rounded-lg shadow-lg p-8 text-center">
+                <div class="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                    <i class="fas fa-check text-green-600 text-4xl"></i>
+                </div>
+                <h2 class="text-3xl font-bold text-gray-900 mb-4">Thank You!</h2>
+                <p class="text-lg text-gray-700 mb-6">Your questionnaire has been submitted successfully.</p>
+
+                <div class="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-6">
+                    <h3 class="font-semibold text-blue-900 mb-3">What Happens Next?</h3>
+                    <ul class="text-left space-y-2 text-blue-800">
+                        <li><i class="fas fa-check text-green-500 mr-2"></i>Our expert team is analyzing your profile</li>
+                        <li><i class="fas fa-check text-green-500 mr-2"></i>We'll prepare 2-3 personalized investment plans</li>
+                        <li><i class="fas fa-check text-green-500 mr-2"></i>You'll receive a call within 24 hours</li>
+                        <li><i class="fas fa-check text-green-500 mr-2"></i>We'll schedule a meeting to discuss recommendations</li>
+                    </ul>
+                </div>
+
+                <div x-show="submissionResult" class="bg-purple-50 border border-purple-200 rounded-lg p-6">
+                    <h3 class="font-semibold text-purple-900 mb-2">Your Risk Profile</h3>
+                    <p class="text-2xl font-bold text-purple-600 mb-1" x-text="submissionResult?.risk_category"></p>
+                    <p class="text-sm text-purple-700">Risk Score: <span x-text="submissionResult?.risk_score"></span>/40</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    const API_URL = '/api';
+    const token = '{{ token }}';
+
+    function questionnaireApp() {
+        return {
+            loading: true,
+            error: null,
+            started: false,
+            submitted: false,
+            submitting: false,
+            currentSection: 0,
+            inviteData: null,
+            questionnaire: null,
+            riskCategories: null,
+            submissionResult: null,
+
+            sections: ['personal', 'financial', 'investment', 'risk', 'goals', 'additional'],
+
+            formData: {
+                // Personal
+                full_name: '',
+                email: '',
+                phone: '',
+                date_of_birth: null,
+                occupation: '',
+                annual_income: null,
+
+                // Financial
+                monthly_income: null,
+                monthly_expenses: null,
+                existing_investments: null,
+                existing_liabilities: null,
+                emergency_fund_months: null,
+
+                // Investment
+                investment_experience: '',
+                preferred_investment_types: [],
+                investment_timeline: '',
+                monthly_investment_capacity: null,
+                lumpsum_availability: null,
+
+                // Risk
+                risk_questionnaire_responses: [],
+
+                // Goals
+                financial_goals: [],
+
+                // Additional
+                current_advisor: '',
+                how_did_you_hear: '',
+                specific_requirements: '',
+                preferred_contact_time: ''
+            },
+
+            // Validation errors
+            validationErrors: {},
+
+            get progress() {
+                return ((this.currentSection + 1) / this.sections.length) * 100;
+            },
+
+            async init() {
+                try {
+                    // Validate token
+                    const validateResponse = await fetch(`${API_URL}/questionnaire/public/${token}/validate`);
+                    const validateData = await validateResponse.json();
+
+                    if (!validateData.valid) {
+                        this.error = validateData.error || 'Invalid or expired invite link';
+                        this.loading = false;
+                        return;
+                    }
+
+                    this.inviteData = validateData;
+                    this.formData.full_name = validateData.recipient_name;
+                    this.formData.email = validateData.recipient_email;
+
+                    // Load questionnaire config
+                    const configResponse = await fetch(`${API_URL}/questionnaire/public/questionnaire-config`);
+                    const configData = await configResponse.json();
+
+                    this.questionnaire = configData.questionnaire;
+                    this.riskCategories = configData.risk_categories;
+
+                    this.loading = false;
+                } catch (err) {
+                    this.error = 'Failed to load questionnaire. Please try again.';
+                    this.loading = false;
+                    console.error(err);
+                }
+            },
+
+            startQuestionnaire() {
+                this.started = true;
+            },
+
+            nextSection() {
+                if (this.currentSection < this.sections.length - 1) {
+                    this.currentSection++;
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                }
+            },
+
+            previousSection() {
+                if (this.currentSection > 0) {
+                    this.currentSection--;
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                }
+            },
+
+            togglePreferredType(type) {
+                const index = this.formData.preferred_investment_types.indexOf(type);
+                if (index > -1) {
+                    this.formData.preferred_investment_types.splice(index, 1);
+                } else {
+                    this.formData.preferred_investment_types.push(type);
+                }
+            },
+
+            getExperienceDescription(level) {
+                const descriptions = {
+                    'Beginner': 'New to investing, need guidance',
+                    'Intermediate': 'Understand basics, some experience',
+                    'Advanced': 'Actively manage portfolio, experienced'
+                };
+                return descriptions[level] || '';
+            },
+
+            calculateSIPValue(monthly, years, returnRate) {
+                const months = years * 12;
+                const monthlyRate = returnRate / 100 / 12;
+                const futureValue = monthly * ((Math.pow(1 + monthlyRate, months) - 1) / monthlyRate) * (1 + monthlyRate);
+                return Math.round(futureValue);
+            },
+
+            selectRiskAnswer(questionId, questionText, answer, score) {
+                // Store selected risk answer in formData.risk_questionnaire_responses
+                const existing = this.formData.risk_questionnaire_responses.findIndex(r => r.question_id === questionId);
+                const response = {
+                    question_id: questionId,
+                    question_text: questionText,
+                    answer: answer,
+                    score: score
+                };
+
+                if (existing > -1) {
+                    this.formData.risk_questionnaire_responses[existing] = response;
+                } else {
+                    this.formData.risk_questionnaire_responses.push(response);
+                }
+            },
+
+            isRiskAnswerSelected(questionId, answer) {
+                // Check if specific answer is selected for a question
+                const response = this.formData.risk_questionnaire_responses.find(r => r.question_id === questionId);
+                return response && response.answer === answer;
+            },
+
+            getRiskScore() {
+                // Calculate total risk score from all responses
+                return this.formData.risk_questionnaire_responses.reduce((sum, r) => sum + r.score, 0);
+            },
+
+            getPreliminaryCategory() {
+                // Determine risk category based on score
+                const score = this.getRiskScore();
+                if (score <= 18) return 'Conservative Investor';
+                if (score <= 28) return 'Moderate Investor';
+                return 'Aggressive Investor';
+            },
+
+            addGoal() {
+                // Add new goal to financial_goals array
+                this.formData.financial_goals.push({
+                    goal_type: 'RETIREMENT',
+                    goal_name: '',
+                    target_amount: null,
+                    years_to_goal: null,
+                    priority: 'MEDIUM'
+                });
+            },
+
+            removeGoal(index) {
+                // Remove goal from array
+                this.formData.financial_goals.splice(index, 1);
+            },
+
+            calculateInflationAdjusted(amount, years) {
+                // Calculate future value with 6% inflation
+                if (!amount || !years) return 0;
+                const inflationRate = 0.06;
+                return Math.round(amount * Math.pow(1 + inflationRate, years));
+            },
+
+            calculateRequiredSIP(targetAmount, years) {
+                // Calculate required monthly SIP at 12% return
+                if (!targetAmount || !years) return 0;
+
+                const months = years * 12;
+                const monthlyRate = 0.12 / 12;
+
+                if (monthlyRate === 0) {
+                    return Math.round(targetAmount / months);
+                }
+
+                // Adjust for inflation
+                const inflationAdjusted = this.calculateInflationAdjusted(targetAmount, years);
+
+                // SIP formula: FV = P * [((1+r)^n - 1) / r] * (1+r)
+                // Solving for P: P = FV / ([((1+r)^n - 1) / r] * (1+r))
+                const numerator = inflationAdjusted * monthlyRate;
+                const denominator = (Math.pow(1 + monthlyRate, months) - 1) * (1 + monthlyRate);
+
+                return Math.round(numerator / denominator);
+            },
+
+            validateForm() {
+                // Clear previous errors
+                this.validationErrors = {};
+                let isValid = true;
+
+                // MANDATORY: Contact Information (to reach out with portfolio options)
+                if (!this.formData.full_name || this.formData.full_name.trim() === '') {
+                    this.validationErrors.full_name = 'Name is required to create your profile';
+                    isValid = false;
+                }
+
+                if (!this.formData.email || this.formData.email.trim() === '') {
+                    this.validationErrors.email = 'Email is required to send portfolio options';
+                    isValid = false;
+                } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(this.formData.email)) {
+                    this.validationErrors.email = 'Please enter a valid email';
+                    isValid = false;
+                }
+
+                if (!this.formData.phone || this.formData.phone.trim() === '') {
+                    this.validationErrors.phone = 'Phone number is required to contact you';
+                    isValid = false;
+                } else if (!/^[\+]?[(]?[0-9]{3}[)]?[-\s\.]?[0-9]{3}[-\s\.]?[0-9]{4,6}$/im.test(this.formData.phone)) {
+                    this.validationErrors.phone = 'Please enter a valid phone number';
+                    isValid = false;
+                }
+
+                // MANDATORY: Risk Assessment (determines asset allocation for portfolio)
+                if (this.formData.risk_questionnaire_responses.length < 10) {
+                    this.validationErrors.risk_assessment = `Risk profiling is mandatory to create portfolio options (${this.formData.risk_questionnaire_responses.length}/10 questions answered)`;
+                    isValid = false;
+                }
+
+                // MANDATORY: Investment Capacity (determines portfolio size)
+                const hasInvestmentCapacity = this.formData.monthly_investment_capacity > 0 || this.formData.lumpsum_availability > 0;
+                if (!hasInvestmentCapacity) {
+                    this.validationErrors.investment_capacity = 'Please provide either monthly SIP capacity or lumpsum availability to design portfolio options';
+                    isValid = false;
+                }
+
+                // MANDATORY: Investment Timeline (determines product selection)
+                if (!this.formData.investment_timeline || this.formData.investment_timeline === '') {
+                    this.validationErrors.investment_timeline = 'Investment timeline is required to recommend suitable products';
+                    isValid = false;
+                }
+
+                return isValid;
+            },
+
+            hasError(field) {
+                return !!this.validationErrors[field];
+            },
+
+            getError(field) {
+                return this.validationErrors[field] || '';
+            },
+
+            async submitQuestionnaire() {
+                // Validate form first
+                if (!this.validateForm()) {
+                    // Find first section with errors and navigate to it
+                    if (this.hasError('full_name') || this.hasError('email') || this.hasError('phone')) {
+                        this.currentSection = 0; // Personal Information
+                    } else if (this.hasError('investment_capacity') || this.hasError('investment_timeline')) {
+                        this.currentSection = 2; // Investment Preferences
+                    } else if (this.hasError('risk_assessment')) {
+                        this.currentSection = 3; // Risk Assessment
+                    }
+
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                    return;
+                }
+
+                this.submitting = true;
+                try {
+                    const response = await fetch(`${API_URL}/questionnaire/public/${token}/submit`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(this.formData)
+                    });
+
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.detail || 'Submission failed');
+                    }
+
+                    const result = await response.json();
+                    this.submissionResult = result;
+                    this.submitted = true;
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                } catch (err) {
+                    // Show error in a better way than alert
+                    this.validationErrors.submit = err.message;
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                } finally {
+                    this.submitting = false;
+                }
+            }
+        };
+    }
+    </script>
+</body>
+</html>

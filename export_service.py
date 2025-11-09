@@ -284,6 +284,100 @@ class ExcelExportService:
             logger.error(f"Error exporting investments to Excel: {e}")
             raise
 
+    def export_prospects(self, prospects, output_path: str):
+        """Export prospects to Excel"""
+        try:
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Prospects"
+
+            # Headers
+            headers = [
+                "ID", "Full Name", "Email", "Phone", "Company", "Designation",
+                "Status", "Priority", "Source", "Estimated Value", "Assigned To",
+                "Next Follow-up", "Last Contact", "Contact Attempts", "Tags",
+                "Notes", "Created Date"
+            ]
+            ws.append(headers)
+
+            # Style headers
+            for col_num, header in enumerate(headers, 1):
+                cell = ws.cell(row=1, column=col_num)
+                cell.font = self.header_font
+                cell.fill = self.header_fill
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+                cell.border = self.border
+
+            # Add data
+            for prospect in prospects:
+                # Format tags as comma-separated string
+                tags_str = ", ".join(prospect.tags) if prospect.tags else ""
+
+                # Get assigned user name
+                assigned_to = prospect.assigned_to.full_name if prospect.assigned_to else ""
+
+                ws.append([
+                    prospect.id,
+                    prospect.full_name,
+                    prospect.email or "",
+                    prospect.phone or "",
+                    prospect.company or "",
+                    prospect.designation or "",
+                    prospect.status.value if prospect.status else "",
+                    prospect.priority.value if prospect.priority else "",
+                    prospect.source.value if prospect.source else "",
+                    prospect.estimated_portfolio_value or "",
+                    assigned_to,
+                    prospect.next_follow_up_date.strftime("%Y-%m-%d %H:%M") if prospect.next_follow_up_date else "",
+                    prospect.last_contact_date.strftime("%Y-%m-%d %H:%M") if prospect.last_contact_date else "",
+                    prospect.contact_attempts or 0,
+                    tags_str,
+                    prospect.notes or "",
+                    prospect.created_at.strftime("%Y-%m-%d") if prospect.created_at else ""
+                ])
+
+            # Auto-size columns
+            for column in ws.columns:
+                max_length = 0
+                column_letter = get_column_letter(column[0].column)
+                for cell in column:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(cell.value)
+                    except:
+                        pass
+                adjusted_width = min(max_length + 2, 50)
+                ws.column_dimensions[column_letter].width = adjusted_width
+
+            # Add summary statistics at the bottom
+            summary_row = ws.max_row + 3
+            ws.cell(row=summary_row, column=1, value="Summary Statistics:")
+            ws.cell(row=summary_row, column=1).font = Font(bold=True, size=14)
+
+            summary_row += 1
+            ws.cell(row=summary_row, column=1, value="Total Prospects:")
+            ws.cell(row=summary_row, column=2, value=len(prospects))
+            ws.cell(row=summary_row, column=2).font = Font(bold=True)
+
+            # Count by status
+            from collections import Counter
+            status_counts = Counter([p.status.value for p in prospects if p.status])
+            summary_row += 2
+            ws.cell(row=summary_row, column=1, value="By Status:")
+            ws.cell(row=summary_row, column=1).font = Font(bold=True)
+            for status, count in status_counts.items():
+                summary_row += 1
+                ws.cell(row=summary_row, column=2, value=f"{status}:")
+                ws.cell(row=summary_row, column=3, value=count)
+
+            wb.save(output_path)
+            logger.info(f"Prospects exported to Excel: {output_path}")
+            return output_path
+
+        except Exception as e:
+            logger.error(f"Error exporting prospects to Excel: {e}")
+            raise
+
 
 # Global instance
 excel_export_service = ExcelExportService()

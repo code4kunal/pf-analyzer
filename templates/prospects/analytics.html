@@ -1,0 +1,315 @@
+{% extends "components/base.html" %}
+
+{% block title %}Prospects Analytics - GrowFolio CMS{% endblock %}
+{% block page_title %}Prospects Analytics{% endblock %}
+
+{% block content %}
+<div x-data="analyticsApp()" x-init="loadAnalytics()">
+    <!-- Back Button -->
+    <div class="mb-6">
+        <a href="/prospects" class="text-primary hover:text-blue-900 font-medium">
+            <i class="fas fa-arrow-left mr-2"></i>Back to Prospects
+        </a>
+    </div>
+
+    <!-- Page Header -->
+    <div class="mb-6">
+        <h1 class="text-2xl font-bold text-gray-900">Prospects Analytics</h1>
+        <p class="text-gray-600 mt-1">Insights into your prospect pipeline and conversion performance</p>
+    </div>
+
+    <!-- Loading State -->
+    <div x-show="loading" class="text-center py-12">
+        <div class="spinner mx-auto mb-4"></div>
+        <p class="text-gray-600">Loading analytics...</p>
+    </div>
+
+    <!-- Analytics Content -->
+    <div x-show="!loading && analytics">
+        <!-- Key Metrics Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+            <div class="bg-white p-6 rounded-lg shadow">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-600 mb-1">Total Prospects</p>
+                        <p class="text-3xl font-bold text-gray-900" x-text="analytics?.total_prospects || 0"></p>
+                    </div>
+                    <div class="w-14 h-14 bg-blue-100 rounded-full flex items-center justify-center">
+                        <i class="fas fa-users text-blue-600 text-2xl"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-lg shadow">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-600 mb-1">Converted</p>
+                        <p class="text-3xl font-bold text-green-600" x-text="analytics?.total_converted || 0"></p>
+                    </div>
+                    <div class="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center">
+                        <i class="fas fa-user-check text-green-600 text-2xl"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-lg shadow">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-600 mb-1">Conversion Rate</p>
+                        <p class="text-3xl font-bold text-purple-600" x-text="analytics?.conversion_rate + '%' || '0%'"></p>
+                    </div>
+                    <div class="w-14 h-14 bg-purple-100 rounded-full flex items-center justify-center">
+                        <i class="fas fa-chart-line text-purple-600 text-2xl"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-lg shadow">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-600 mb-1">Avg. Time to Convert</p>
+                        <p class="text-3xl font-bold text-orange-600">
+                            <span x-show="analytics?.avg_time_to_convert_days" x-text="Math.round(analytics?.avg_time_to_convert_days || 0)"></span>
+                            <span x-show="!analytics?.avg_time_to_convert_days">-</span>
+                        </p>
+                        <p class="text-xs text-gray-500 mt-1">days</p>
+                    </div>
+                    <div class="w-14 h-14 bg-orange-100 rounded-full flex items-center justify-center">
+                        <i class="fas fa-clock text-orange-600 text-2xl"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Row 1 -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <!-- Conversion Funnel -->
+            <div class="bg-white p-6 rounded-lg shadow">
+                <h3 class="text-lg font-bold text-gray-900 mb-4">
+                    <i class="fas fa-filter mr-2 text-primary"></i>Conversion Funnel
+                </h3>
+                <canvas id="funnelChart"></canvas>
+            </div>
+
+            <!-- Priority Breakdown -->
+            <div class="bg-white p-6 rounded-lg shadow">
+                <h3 class="text-lg font-bold text-gray-900 mb-4">
+                    <i class="fas fa-fire mr-2 text-primary"></i>Priority Breakdown
+                </h3>
+                <canvas id="priorityChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Charts Row 2 -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <!-- Source Performance -->
+            <div class="bg-white p-6 rounded-lg shadow">
+                <h3 class="text-lg font-bold text-gray-900 mb-4">
+                    <i class="fas fa-chart-pie mr-2 text-primary"></i>Source Performance
+                </h3>
+                <canvas id="sourceChart"></canvas>
+            </div>
+
+            <!-- Source Conversion Rates -->
+            <div class="bg-white p-6 rounded-lg shadow">
+                <h3 class="text-lg font-bold text-gray-900 mb-4">
+                    <i class="fas fa-percentage mr-2 text-primary"></i>Conversion Rate by Source
+                </h3>
+                <div class="space-y-4">
+                    <template x-for="source in analytics?.by_source || []" :key="source.source">
+                        <div>
+                            <div class="flex justify-between items-center mb-2">
+                                <span class="text-sm font-medium text-gray-700" x-text="source.source"></span>
+                                <span class="text-sm font-bold" :class="source.conversion_rate > 20 ? 'text-green-600' : source.conversion_rate > 10 ? 'text-yellow-600' : 'text-red-600'" x-text="source.conversion_rate + '%'"></span>
+                            </div>
+                            <div class="w-full bg-gray-200 rounded-full h-2">
+                                <div
+                                    class="h-2 rounded-full"
+                                    :class="source.conversion_rate > 20 ? 'bg-green-600' : source.conversion_rate > 10 ? 'bg-yellow-600' : 'bg-red-600'"
+                                    :style="`width: ${source.conversion_rate}%`"
+                                ></div>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-1" x-text="`${source.count} prospects`"></p>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+
+        <!-- Status Breakdown Table -->
+        <div class="bg-white rounded-lg shadow overflow-hidden">
+            <div class="p-6 border-b border-gray-200">
+                <h3 class="text-lg font-bold text-gray-900">
+                    <i class="fas fa-list mr-2 text-primary"></i>Status Breakdown
+                </h3>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Count</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Percentage</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Visual</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        <template x-for="status in analytics?.by_status || []" :key="status.status">
+                            <tr class="hover:bg-gray-50">
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <span :class="getStatusBadgeClass(status.status)" class="px-3 py-1 text-xs font-semibold rounded-full" x-text="status.status"></span>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900" x-text="status.count"></td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700" x-text="status.percentage + '%'"></td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <div class="w-full bg-gray-200 rounded-full h-2 max-w-xs">
+                                        <div
+                                            :class="getStatusBarClass(status.status)"
+                                            class="h-2 rounded-full"
+                                            :style="`width: ${status.percentage}%`"
+                                        ></div>
+                                    </div>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function analyticsApp() {
+    return {
+        analytics: null,
+        loading: false,
+        charts: {},
+
+        async loadAnalytics() {
+            this.loading = true;
+            try {
+                const response = await axios.get(`${API_URL}/prospects/analytics`);
+                this.analytics = response.data;
+
+                // Wait for DOM to update
+                await this.$nextTick();
+                this.createCharts();
+            } catch (error) {
+                showToast('Error loading analytics: ' + (error.response?.data?.detail || error.message), 'error');
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        createCharts() {
+            // Funnel Chart (Status)
+            const funnelCtx = document.getElementById('funnelChart');
+            if (funnelCtx && this.analytics.by_status) {
+                this.charts.funnel = new Chart(funnelCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: this.analytics.by_status.map(s => s.status),
+                        datasets: [{
+                            label: 'Prospects',
+                            data: this.analytics.by_status.map(s => s.count),
+                            backgroundColor: [
+                                '#3B82F6', // NEW - Blue
+                                '#EAB308', // CONTACTED - Yellow
+                                '#A855F7', // QUALIFIED - Purple
+                                '#F97316', // NEGOTIATION - Orange
+                                '#10B981', // CONVERTED - Green
+                                '#EF4444'  // LOST - Red
+                            ]
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: true,
+                        plugins: {
+                            legend: { display: false }
+                        },
+                        scales: {
+                            y: { beginAtZero: true }
+                        }
+                    }
+                });
+            }
+
+            // Priority Chart
+            const priorityCtx = document.getElementById('priorityChart');
+            if (priorityCtx && this.analytics.by_priority) {
+                const priorityData = this.analytics.by_priority;
+                this.charts.priority = new Chart(priorityCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: Object.keys(priorityData),
+                        datasets: [{
+                            data: Object.values(priorityData),
+                            backgroundColor: ['#EF4444', '#F97316', '#3B82F6'] // HOT, WARM, COLD
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: true,
+                        plugins: {
+                            legend: { position: 'bottom' }
+                        }
+                    }
+                });
+            }
+
+            // Source Chart
+            const sourceCtx = document.getElementById('sourceChart');
+            if (sourceCtx && this.analytics.by_source) {
+                this.charts.source = new Chart(sourceCtx, {
+                    type: 'pie',
+                    data: {
+                        labels: this.analytics.by_source.map(s => s.source),
+                        datasets: [{
+                            data: this.analytics.by_source.map(s => s.count),
+                            backgroundColor: [
+                                '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#6B7280'
+                            ]
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: true,
+                        plugins: {
+                            legend: { position: 'bottom' }
+                        }
+                    }
+                });
+            }
+        },
+
+        getStatusBadgeClass(status) {
+            const classes = {
+                'NEW': 'bg-blue-100 text-blue-800',
+                'CONTACTED': 'bg-yellow-100 text-yellow-800',
+                'QUALIFIED': 'bg-purple-100 text-purple-800',
+                'NEGOTIATION': 'bg-orange-100 text-orange-800',
+                'CONVERTED': 'bg-green-100 text-green-800',
+                'LOST': 'bg-red-100 text-red-800'
+            };
+            return classes[status] || 'bg-gray-100 text-gray-800';
+        },
+
+        getStatusBarClass(status) {
+            const classes = {
+                'NEW': 'bg-blue-600',
+                'CONTACTED': 'bg-yellow-600',
+                'QUALIFIED': 'bg-purple-600',
+                'NEGOTIATION': 'bg-orange-600',
+                'CONVERTED': 'bg-green-600',
+                'LOST': 'bg-red-600'
+            };
+            return classes[status] || 'bg-gray-600';
+        }
+    };
+}
+</script>
+{% endblock %}
