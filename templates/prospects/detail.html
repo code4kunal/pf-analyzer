@@ -42,12 +42,18 @@
                         <span x-text="editMode ? 'Cancel' : 'Edit'"></span>
                     </button>
                     <button
+                        x-show="hasQuestionnaireResponse"
                         @click="viewPortfolio()"
-                        :disabled="!hasQuestionnaireResponse"
-                        :class="hasQuestionnaireResponse ? 'bg-primary hover:bg-blue-900' : 'bg-gray-400 cursor-not-allowed'"
-                        class="px-4 py-2 text-white rounded-lg transition"
+                        class="px-4 py-2 bg-primary hover:bg-blue-900 text-white rounded-lg transition"
                     >
                         <i class="fas fa-chart-pie mr-2"></i>View Portfolio
+                    </button>
+                    <button
+                        x-show="!hasQuestionnaireResponse"
+                        @click="createQuickPortfolio()"
+                        class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition"
+                    >
+                        <i class="fas fa-bolt mr-2"></i>Create Portfolio (Quick Start)
                     </button>
                     <button
                         x-show="prospect?.status !== 'CONVERTED'"
@@ -332,6 +338,11 @@ function prospectDetailApp(prospectId) {
             } else {
                 showToast('No questionnaire response found for this prospect', 'warning');
             }
+        },
+
+        createQuickPortfolio() {
+            // Navigate to portfolio dashboard in Quick Start mode
+            window.location.href = `/portfolio/presentation?prospect_id=${this.prospectId}&quickstart=true`;
         },
 
         async saveProspect() {

@@ -180,7 +180,8 @@ class PortfolioConstructionService:
             lumpsum=lumpsum,
             timeline_years=timeline_years,
             equity_percent=equity_percent,
-            step_up_percent=step_up_percent
+            step_up_percent=step_up_percent,
+            risk_profile=risk_profile
         )
 
         # Tax harvesting strategy
@@ -262,22 +263,28 @@ class PortfolioConstructionService:
         lumpsum: float,
         timeline_years: int,
         equity_percent: float,
-        step_up_percent: float
+        step_up_percent: float,
+        risk_profile: str
     ) -> Dict:
-        """Calculate year-by-year projections with step-up"""
+        """
+        Calculate year-by-year projections with step-up
 
-        # Expected returns by asset class
-        equity_return = 0.15  # 15% for direct equity
-        mf_return = 0.10      # 10% for mutual funds
-        cash_return = 0.06    # 6% for liquid funds
+        Expected CAGR by Risk Profile (minimum 3-4 years timeline):
+        - Conservative: 18% CAGR
+        - Moderate: 22% CAGR
+        - Aggressive: 25% CAGR
+        """
 
-        # Blended return
-        mf_percent = 95 - equity_percent  # Remaining after equity (5% cash)
-        blended_return = (
-            (equity_percent / 100) * equity_return +
-            (mf_percent / 100) * mf_return +
-            (5 / 100) * cash_return
-        )
+        # Portfolio expected returns based on risk profile
+        # These are blended returns accounting for equity + MF + cash allocation
+        PORTFOLIO_CAGR = {
+            "CONSERVATIVE": 0.18,  # 18% CAGR
+            "MODERATE": 0.22,      # 22% CAGR
+            "AGGRESSIVE": 0.25     # 25% CAGR
+        }
+
+        # Use risk-profile specific CAGR
+        blended_return = PORTFOLIO_CAGR.get(risk_profile, 0.20)  # Default 20% if not found
 
         year_by_year = []
         total_invested = lumpsum
