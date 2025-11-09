@@ -124,6 +124,93 @@
         </div>
     </div>
 
+    <!-- SEBI-Compliant Disclaimers (Mandatory) -->
+    <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
+        <div class="flex">
+            <div class="flex-shrink-0">
+                <i class="fas fa-exclamation-triangle text-yellow-400 text-xl"></i>
+            </div>
+            <div class="ml-3">
+                <h3 class="text-sm font-medium text-yellow-800">Important Disclosures - Please Read Carefully</h3>
+                <div class="mt-2 text-sm text-yellow-700">
+                    <ul class="list-disc list-inside space-y-1">
+                        <li><strong>Market Risk:</strong> Investments in securities markets are subject to market risks. Read all related documents carefully.</li>
+                        <li><strong>Returns:</strong> Past performance is not indicative of future returns. The projected returns of 18-25% on direct equity are based on historical performance and active stock selection expertise. Actual returns may differ significantly.</li>
+                        <li><strong>No Guarantee:</strong> Returns are not guaranteed and will depend on market conditions, economic factors, and stock selection.</li>
+                        <li><strong>Professional Advice:</strong> This is a model portfolio recommendation. Please consult with a SEBI-registered investment advisor for personalized advice.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Suitability Assessment (If Available) -->
+    <div x-show="suitabilityCheck && suitabilityCheck.overall_suitable !== undefined"
+         x-transition
+         :class="suitabilityCheck.overall_suitable ? 'bg-green-50 border-green-400' : 'bg-orange-50 border-orange-400'"
+         class="border-l-4 p-4 mb-6 rounded-lg shadow">
+        <div class="flex">
+            <div class="flex-shrink-0">
+                <i :class="suitabilityCheck.overall_suitable ? 'fa-check-circle text-green-400' : 'fa-exclamation-circle text-orange-400'"
+                   class="fas text-xl"></i>
+            </div>
+            <div class="ml-3 flex-1">
+                <h3 class="text-lg font-bold"
+                    :class="suitabilityCheck.overall_suitable ? 'text-green-800' : 'text-orange-800'">
+                    Financial Foundation Assessment
+                </h3>
+                <p class="text-sm mt-1"
+                   :class="suitabilityCheck.overall_suitable ? 'text-green-700' : 'text-orange-700'"
+                   x-text="suitabilityCheck.final_recommendation"></p>
+
+                <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div class="flex items-center">
+                        <span :class="suitabilityCheck.emergency_fund?.status === 'EXCELLENT' || suitabilityCheck.emergency_fund?.status === 'ADEQUATE' ? 'text-green-600' : 'text-red-600'"
+                              class="text-sm">
+                            <i :class="suitabilityCheck.emergency_fund?.status === 'EXCELLENT' || suitabilityCheck.emergency_fund?.status === 'ADEQUATE' ? 'fa-check' : 'fa-times'"
+                               class="fas mr-2"></i>
+                            <span x-text="suitabilityCheck.emergency_fund?.message"></span>
+                        </span>
+                    </div>
+                    <div class="flex items-center">
+                        <span :class="suitabilityCheck.term_insurance?.status === 'EXCELLENT' || suitabilityCheck.term_insurance?.status === 'ADEQUATE' ? 'text-green-600' : 'text-red-600'"
+                              class="text-sm">
+                            <i :class="suitabilityCheck.term_insurance?.status === 'EXCELLENT' || suitabilityCheck.term_insurance?.status === 'ADEQUATE' ? 'fa-check' : 'fa-times'"
+                               class="fas mr-2"></i>
+                            <span x-text="suitabilityCheck.term_insurance?.message"></span>
+                        </span>
+                    </div>
+                    <div class="flex items-center">
+                        <span :class="suitabilityCheck.health_insurance?.status === 'EXCELLENT' || suitabilityCheck.health_insurance?.status === 'ADEQUATE' ? 'text-green-600' : 'text-red-600'"
+                              class="text-sm">
+                            <i :class="suitabilityCheck.health_insurance?.status === 'EXCELLENT' || suitabilityCheck.health_insurance?.status === 'ADEQUATE' ? 'fa-check' : 'fa-times'"
+                               class="fas mr-2"></i>
+                            <span x-text="suitabilityCheck.health_insurance?.message"></span>
+                        </span>
+                    </div>
+                    <div class="flex items-center">
+                        <span :class="suitabilityCheck.debt_ratio?.status === 'EXCELLENT' || suitabilityCheck.debt_ratio?.status === 'ACCEPTABLE' ? 'text-green-600' : 'text-red-600'"
+                              class="text-sm">
+                            <i :class="suitabilityCheck.debt_ratio?.status === 'EXCELLENT' || suitabilityCheck.debt_ratio?.status === 'ACCEPTABLE' ? 'fa-check' : 'fa-times'"
+                               class="fas mr-2"></i>
+                            <span x-text="suitabilityCheck.debt_ratio?.message || 'Debt ratio: Not assessed'"></span>
+                        </span>
+                    </div>
+                </div>
+
+                <div x-show="suitabilityCheck.recommendations && suitabilityCheck.recommendations.length > 0"
+                     class="mt-4 bg-white rounded p-3">
+                    <p class="font-medium text-sm text-gray-800 mb-2">📋 Recommendations before investing:</p>
+                    <ul class="list-disc list-inside text-sm text-gray-700 space-y-1">
+                        <template x-for="rec in suitabilityCheck.recommendations" :key="rec">
+                            <li x-text="rec"></li>
+                        </template>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Quick Start Form (For Walk-in Clients) -->
     <div x-show="quickStartMode"
          x-transition
@@ -432,6 +519,199 @@
         <p class="text-gray-600">Generating optimized portfolios...</p>
     </div>
 
+    <!-- Return Breakdown Explanation (Selected Portfolio) -->
+    <div x-show="!loading && portfolios.length > 0 && portfolios[selectedPortfolio]?.projections?.return_breakdown"
+         x-transition
+         class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg shadow-lg p-6 mb-6 border-2 border-blue-200">
+        <h3 class="text-xl font-bold text-gray-900 mb-4">
+            <i class="fas fa-calculator text-blue-600 mr-2"></i>Return Breakdown - How We Calculate Returns
+        </h3>
+        <p class="text-sm text-gray-700 mb-4">
+            Your portfolio return is a weighted average of three components based on allocation:
+        </p>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <!-- Direct Equity Component -->
+            <div class="bg-white rounded-lg p-4 shadow">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-sm font-medium text-gray-600">Direct Equity</span>
+                    <span class="text-xs px-2 py-1 bg-green-100 text-green-800 rounded-full"
+                          x-text="portfolios[selectedPortfolio]?.projections?.return_breakdown?.equity_allocation + '%'"></span>
+                </div>
+                <div class="text-3xl font-bold text-green-600"
+                     x-text="portfolios[selectedPortfolio]?.projections?.return_breakdown?.equity_return + '%'"></div>
+                <div class="text-xs text-gray-500 mt-1">Our stock selection expertise</div>
+            </div>
+
+            <!-- Mutual Funds Component -->
+            <div class="bg-white rounded-lg p-4 shadow">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-sm font-medium text-gray-600">Mutual Funds</span>
+                    <span class="text-xs px-2 py-1 bg-blue-100 text-blue-800 rounded-full"
+                          x-text="portfolios[selectedPortfolio]?.projections?.return_breakdown?.mf_allocation + '%'"></span>
+                </div>
+                <div class="text-3xl font-bold text-blue-600"
+                     x-text="portfolios[selectedPortfolio]?.projections?.return_breakdown?.mf_return + '%'"></div>
+                <div class="text-xs text-gray-500 mt-1">Risk cushion (Debt/Hybrid/Gold)</div>
+            </div>
+
+            <!-- Cash Component -->
+            <div class="bg-white rounded-lg p-4 shadow">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-sm font-medium text-gray-600">Liquid Funds</span>
+                    <span class="text-xs px-2 py-1 bg-gray-100 text-gray-800 rounded-full"
+                          x-text="portfolios[selectedPortfolio]?.projections?.return_breakdown?.cash_allocation + '%'"></span>
+                </div>
+                <div class="text-3xl font-bold text-gray-600"
+                     x-text="portfolios[selectedPortfolio]?.projections?.return_breakdown?.cash_return + '%'"></div>
+                <div class="text-xs text-gray-500 mt-1">Emergency buffer</div>
+            </div>
+        </div>
+
+        <!-- Calculation Explanation -->
+        <div class="bg-white rounded-lg p-4 border-l-4 border-blue-500">
+            <div class="flex items-start">
+                <i class="fas fa-lightbulb text-yellow-500 text-xl mr-3 mt-1"></i>
+                <div>
+                    <p class="text-sm font-medium text-gray-900 mb-1">Blended Portfolio Return Calculation:</p>
+                    <p class="text-sm text-gray-700 font-mono bg-gray-50 p-2 rounded"
+                       x-text="portfolios[selectedPortfolio]?.projections?.return_breakdown?.explanation"></p>
+                    <p class="text-sm text-gray-600 mt-2">
+                        <strong>Final CAGR: <span class="text-blue-600 text-lg" x-text="portfolios[selectedPortfolio]?.projections?.return_breakdown?.blended_return + '%'"></span></strong>
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scenario Analysis (Best/Expected/Worst Case) -->
+    <div x-show="!loading && scenarioData && scenarioData.scenarios"
+         x-transition
+         class="bg-white rounded-lg shadow-lg p-6 mb-6">
+        <h3 class="text-xl font-bold text-gray-900 mb-4">
+            <i class="fas fa-chart-bar text-purple-600 mr-2"></i>Scenario Analysis - What to Expect
+        </h3>
+        <p class="text-sm text-gray-600 mb-4">
+            We show you three possible outcomes so you have realistic expectations. Most likely, you'll end up in the "Expected" range.
+        </p>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <!-- Optimistic Scenario -->
+            <div class="bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg p-5 border-2 border-green-200">
+                <div class="flex items-center justify-between mb-3">
+                    <h4 class="font-bold text-green-800">🎯 Optimistic</h4>
+                    <span class="text-xs bg-green-200 text-green-800 px-2 py-1 rounded-full">Best Case</span>
+                </div>
+                <div class="text-3xl font-bold text-green-600 mb-2"
+                     x-text="'₹' + (scenarioData.scenarios.optimistic?.final_value / 10000000).toFixed(2) + ' Cr'"></div>
+                <div class="text-sm text-green-700 mb-2"
+                     x-text="'CAGR: ' + scenarioData.scenarios.optimistic?.cagr + '%'"></div>
+                <div class="text-xs text-green-600" x-text="scenarioData.scenarios.optimistic?.description"></div>
+            </div>
+
+            <!-- Expected Scenario -->
+            <div class="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-5 border-2 border-blue-300 ring-2 ring-blue-400">
+                <div class="flex items-center justify-between mb-3">
+                    <h4 class="font-bold text-blue-800">📊 Expected</h4>
+                    <span class="text-xs bg-blue-200 text-blue-800 px-2 py-1 rounded-full">Most Likely</span>
+                </div>
+                <div class="text-3xl font-bold text-blue-600 mb-2"
+                     x-text="'₹' + (scenarioData.scenarios.expected?.final_value / 10000000).toFixed(2) + ' Cr'"></div>
+                <div class="text-sm text-blue-700 mb-2"
+                     x-text="'CAGR: ' + scenarioData.scenarios.expected?.cagr + '%'"></div>
+                <div class="text-xs text-blue-600" x-text="scenarioData.scenarios.expected?.description"></div>
+            </div>
+
+            <!-- Pessimistic Scenario -->
+            <div class="bg-gradient-to-br from-orange-50 to-red-50 rounded-lg p-5 border-2 border-orange-200">
+                <div class="flex items-center justify-between mb-3">
+                    <h4 class="font-bold text-orange-800">⚠️ Pessimistic</h4>
+                    <span class="text-xs bg-orange-200 text-orange-800 px-2 py-1 rounded-full">Worst Case</span>
+                </div>
+                <div class="text-3xl font-bold text-orange-600 mb-2"
+                     x-text="'₹' + (scenarioData.scenarios.pessimistic?.final_value / 10000000).toFixed(2) + ' Cr'"></div>
+                <div class="text-sm text-orange-700 mb-2"
+                     x-text="'CAGR: ' + scenarioData.scenarios.pessimistic?.cagr + '%'"></div>
+                <div class="text-xs text-orange-600" x-text="scenarioData.scenarios.pessimistic?.description"></div>
+            </div>
+        </div>
+
+        <!-- Range Explanation -->
+        <div class="mt-4 bg-gray-50 rounded-lg p-4 border-l-4 border-purple-500">
+            <p class="text-sm text-gray-700">
+                <i class="fas fa-info-circle text-purple-500 mr-2"></i>
+                <strong>Range Analysis:</strong> <span x-text="scenarioData.range_analysis?.explanation"></span>
+            </p>
+        </div>
+    </div>
+
+    <!-- Rebalancing Strategy -->
+    <div x-show="!loading && rebalancingStrategy"
+         x-transition
+         class="bg-white rounded-lg shadow-lg p-6 mb-6">
+        <h3 class="text-xl font-bold text-gray-900 mb-4">
+            <i class="fas fa-balance-scale text-indigo-600 mr-2"></i>Portfolio Rebalancing Strategy
+        </h3>
+        <p class="text-sm text-gray-600 mb-4">
+            Markets move, changing your allocation. Rebalancing = selling high & buying low automatically.
+        </p>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Rebalancing Schedule -->
+            <div>
+                <h4 class="font-semibold text-gray-800 mb-3">📅 Review Schedule</h4>
+                <div class="space-y-2">
+                    <div class="flex items-center">
+                        <i class="fas fa-clock text-blue-500 mr-2"></i>
+                        <span class="text-sm">
+                            <strong>Frequency:</strong>
+                            <span x-text="rebalancingStrategy.frequency" class="text-blue-600 font-medium"></span>
+                        </span>
+                    </div>
+                    <div class="flex items-center">
+                        <i class="fas fa-percentage text-blue-500 mr-2"></i>
+                        <span class="text-sm">
+                            <strong>Drift Tolerance:</strong>
+                            <span x-text="rebalancingStrategy.drift_tolerance_percent + '%'" class="text-blue-600 font-medium"></span>
+                        </span>
+                    </div>
+                </div>
+
+                <div class="mt-4 bg-blue-50 rounded p-3">
+                    <p class="text-xs font-medium text-blue-800 mb-2">Target Allocation:</p>
+                    <div class="space-y-1 text-xs text-blue-700">
+                        <div>Equity: <span class="font-bold" x-text="rebalancingStrategy.target_equity + '%'"></span></div>
+                        <div>Mutual Funds: <span class="font-bold" x-text="rebalancingStrategy.target_mf + '%'"></span></div>
+                        <div>Cash: <span class="font-bold" x-text="rebalancingStrategy.target_cash + '%'"></span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Rebalancing Process -->
+            <div>
+                <h4 class="font-semibold text-gray-800 mb-3">🔄 Rebalancing Process</h4>
+                <ol class="space-y-2">
+                    <template x-for="(step, idx) in rebalancingStrategy.process" :key="idx">
+                        <li class="text-sm text-gray-700 flex">
+                            <span class="text-indigo-600 font-bold mr-2" x-text="(idx + 1) + '.'"></span>
+                            <span x-text="step.replace(/^\d+\.\s*/, '')"></span>
+                        </li>
+                    </template>
+                </ol>
+            </div>
+        </div>
+
+        <!-- Example -->
+        <div class="mt-4 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg p-4 border-l-4 border-indigo-500">
+            <p class="text-sm font-medium text-indigo-900 mb-2">📘 Example:</p>
+            <p class="text-sm text-indigo-800" x-text="rebalancingStrategy.example"></p>
+            <p class="text-sm text-green-700 mt-2">
+                <i class="fas fa-check-circle mr-1"></i>
+                <strong>Benefit:</strong> <span x-text="rebalancingStrategy.benefit"></span>
+            </p>
+        </div>
+    </div>
+
     <!-- Portfolio Options -->
     <div x-show="!loading && portfolios.length > 0" class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
         <template x-for="(portfolio, index) in portfolios" :key="index">
@@ -679,7 +959,8 @@ function portfolioDashboard() {
             name: 'Demo Client',
             risk_profile: 'MODERATE',
             response_id: null,
-            prospect_id: null
+            prospect_id: null,
+            age: null
         },
         questionnaireResponse: null,
         parameters: {
@@ -691,6 +972,10 @@ function portfolioDashboard() {
         },
         portfolios: [],
         selectedPortfolio: 0,
+        scenarioData: null,
+        rebalancingStrategy: null,
+        suitabilityCheck: null,
+        ageBasedRecommendation: null,
         allocationChart: null,
         growthChart: null,
         debounceTimer: null,
@@ -750,6 +1035,7 @@ function portfolioDashboard() {
 
                 // Set client info from quick start
                 this.clientInfo.risk_profile = this.quickStartData.risk_profile;
+                this.clientInfo.age = parseInt(this.quickStartData.age);
                 this.parameters.monthly_sip = parseFloat(this.quickStartData.monthly_sip) || 0;
                 this.parameters.lumpsum = parseFloat(this.quickStartData.lumpsum) || 0;
                 this.parameters.timeline_years = parseInt(this.quickStartData.time_horizon);
@@ -792,6 +1078,7 @@ function portfolioDashboard() {
 
                 // Load client info from questionnaire
                 this.clientInfo.risk_profile = responseData.data.calculated_risk_category;
+                this.clientInfo.age = responseData.data.age || null;
                 this.parameters.monthly_sip = responseData.data.monthly_investment_capacity || 50000;
                 this.parameters.lumpsum = responseData.data.lumpsum_availability || 0;
                 this.parameters.timeline_years = this.extractTimelineYears(responseData.data.investment_timeline);
@@ -910,11 +1197,17 @@ function portfolioDashboard() {
                     lumpsum: parseFloat(this.parameters.lumpsum),
                     timeline_years: parseInt(this.parameters.timeline_years),
                     step_up_percent: parseFloat(this.parameters.step_up_percent),
-                    equity_preference: parseFloat(this.parameters.equity_percent)
+                    equity_preference: parseFloat(this.parameters.equity_percent),
+                    response_id: this.clientInfo.response_id
                 });
 
                 this.portfolios = response.data.portfolios;
                 this.selectedPortfolio = 0;
+
+                // Store expert features data
+                this.scenarioData = response.data.scenario_data;
+                this.rebalancingStrategy = response.data.rebalancing_strategy;
+                this.suitabilityCheck = response.data.suitability_check;
 
                 this.$nextTick(() => this.renderCharts());
 

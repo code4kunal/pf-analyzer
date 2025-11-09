@@ -36,6 +36,9 @@ async def generate_portfolios(
     - Tax harvesting (₹1.25L every 2 years)
     - SIP step-up projections
     - Portfolio health scoring
+    - Scenario analysis (optimistic/expected/pessimistic)
+    - Rebalancing strategy
+    - Suitability assessment
     """
     try:
         # Validate that at least one investment capacity is provided
@@ -76,6 +79,43 @@ async def generate_portfolios(
             health_score = PortfolioConstructionService.calculate_portfolio_health_score(portfolio)
             portfolio["health_score"] = health_score
 
+        # Generate scenario analysis (for first/recommended portfolio)
+        scenario_data = PortfolioConstructionService.calculate_scenario_projections(
+            monthly_sip=request.monthly_sip,
+            lumpsum=request.lumpsum,
+            timeline_years=request.timeline_years,
+            step_up_percent=request.step_up_percent,
+            equity_percent=portfolios[0]["allocation"]["equity"]["percent"],
+            mf_percent=portfolios[0]["allocation"]["mutual_funds"]["percent"],
+            risk_profile=request.risk_profile.value
+        )
+
+        # Generate rebalancing strategy
+        rebalancing_strategy = PortfolioConstructionService.generate_rebalancing_strategy(
+            risk_profile=request.risk_profile.value,
+            timeline_years=request.timeline_years,
+            target_equity=portfolios[0]["allocation"]["equity"]["percent"],
+            target_mf=portfolios[0]["allocation"]["mutual_funds"]["percent"],
+            target_cash=portfolios[0]["allocation"]["cash"]["percent"]
+        )
+
+        # Suitability assessment (if questionnaire data available)
+        suitability_check = None
+        if request.response_id:
+            response = db.query(ClientProfilingResponse).filter(
+                ClientProfilingResponse.id == request.response_id
+            ).first()
+            if response:
+                client_data = {
+                    "monthly_expenses": response.monthly_expenses or 0,
+                    "existing_liquid_funds": response.existing_liquid_funds or 0,
+                    "annual_income": response.annual_income or 0,
+                    "existing_term_insurance": response.existing_term_insurance or 0,
+                    "existing_health_insurance": response.existing_health_insurance or 0,
+                    "monthly_emi": response.monthly_emi or 0
+                }
+                suitability_check = PortfolioConstructionService.assess_investment_suitability(client_data)
+
         # Comparison metrics
         comparison_metrics = {
             "min_final_value": min(p["projections"]["final_value"] for p in portfolios),
@@ -87,7 +127,10 @@ async def generate_portfolios(
 
         return {
             "portfolios": portfolios,
-            "comparison_metrics": comparison_metrics
+            "comparison_metrics": comparison_metrics,
+            "scenario_data": scenario_data,
+            "rebalancing_strategy": rebalancing_strategy,
+            "suitability_check": suitability_check
         }
 
     except Exception as e:

@@ -1307,6 +1307,9 @@ class PortfolioComparisonResponse(BaseModel):
     """Compare multiple portfolio options"""
     portfolios: List[ModelPortfolioResponse]
     comparison_metrics: Dict
+    scenario_data: Optional[Dict] = None
+    rebalancing_strategy: Optional[Dict] = None
+    suitability_check: Optional[Dict] = None
 
 # -------- ANALYTICS SCHEMAS --------
 
