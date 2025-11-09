@@ -227,6 +227,73 @@ async def get_response(
         raise HTTPException(status_code=500, detail=f"Error retrieving response: {str(e)}")
 
 
+@router.get("/responses/by-prospect/{prospect_id}", response_model=ClientProfilingResponseDetail)
+async def get_response_by_prospect(
+    prospect_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(auth.require_admin)
+):
+    """Get questionnaire response for a prospect (returns latest if multiple)"""
+    try:
+        response = db.query(ClientProfilingResponse).filter(
+            ClientProfilingResponse.prospect_id == prospect_id
+        ).order_by(ClientProfilingResponse.submitted_at.desc()).first()
+
+        if not response:
+            raise HTTPException(status_code=404, detail="No questionnaire response found for this prospect")
+
+        return ClientProfilingResponseDetail.from_orm(response)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving response: {str(e)}")
+
+
+@router.put("/responses/{response_id}", response_model=ClientProfilingResponseDetail)
+async def update_response(
+    response_id: int,
+    update_data: ClientProfilingSubmission,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(auth.require_admin)
+):
+    """Admin endpoint to update/complete questionnaire response during meeting"""
+    try:
+        response = db.query(ClientProfilingResponse).filter(
+            ClientProfilingResponse.id == response_id
+        ).first()
+
+        if not response:
+            raise HTTPException(status_code=404, detail="Response not found")
+
+        # Update all fields from submission
+        for field, value in update_data.dict(exclude_unset=True).items():
+            if field != 'risk_questionnaire_responses':
+                setattr(response, field, value)
+
+        # Update risk questionnaire responses (stored as JSON)
+        if update_data.risk_questionnaire_responses:
+            response.risk_questionnaire_responses = [r.dict() for r in update_data.risk_questionnaire_responses]
+
+            # Recalculate risk score
+            from services.risk_profiling_service import RiskProfilingService
+            risk_score = sum(r.points_awarded for r in update_data.risk_questionnaire_responses)
+            response.calculated_risk_score = risk_score
+            response.calculated_risk_category = RiskProfilingService.calculate_risk_category(risk_score)
+
+        response.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(response)
+
+        return ClientProfilingResponseDetail.from_orm(response)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error updating response: {str(e)}")
+
+
 @router.get("/analytics", response_model=QuestionnaireAnalytics)
 async def get_analytics(
     db: Session = Depends(get_db),

@@ -42,6 +42,14 @@
                         <span x-text="editMode ? 'Cancel' : 'Edit'"></span>
                     </button>
                     <button
+                        @click="viewPortfolio()"
+                        :disabled="!hasQuestionnaireResponse"
+                        :class="hasQuestionnaireResponse ? 'bg-primary hover:bg-blue-900' : 'bg-gray-400 cursor-not-allowed'"
+                        class="px-4 py-2 text-white rounded-lg transition"
+                    >
+                        <i class="fas fa-chart-pie mr-2"></i>View Portfolio
+                    </button>
+                    <button
                         x-show="prospect?.status !== 'CONVERTED'"
                         @click="convertToCustomer()"
                         class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition"
@@ -282,6 +290,8 @@ function prospectDetailApp(prospectId) {
         loading: false,
         editMode: false,
         editData: {},
+        hasQuestionnaireResponse: false,
+        questionnaireResponseId: null,
 
         async loadProspect() {
             this.loading = true;
@@ -289,10 +299,38 @@ function prospectDetailApp(prospectId) {
                 const response = await axios.get(`${API_URL}/prospects/${this.prospectId}`);
                 this.prospect = response.data;
                 this.editData = { ...response.data };
+
+                // Check if prospect has questionnaire response
+                await this.checkQuestionnaireResponse();
             } catch (error) {
                 showToast('Error loading prospect: ' + (error.response?.data?.detail || error.message), 'error');
             } finally {
                 this.loading = false;
+            }
+        },
+
+        async checkQuestionnaireResponse() {
+            try {
+                const response = await axios.get(`${API_URL}/questionnaire/responses/by-prospect/${this.prospectId}`);
+                if (response.data) {
+                    this.hasQuestionnaireResponse = true;
+                    this.questionnaireResponseId = response.data.id;
+                }
+            } catch (error) {
+                // 404 is expected if no response exists
+                if (error.response?.status !== 404) {
+                    console.error('Error checking questionnaire response:', error);
+                }
+                this.hasQuestionnaireResponse = false;
+                this.questionnaireResponseId = null;
+            }
+        },
+
+        viewPortfolio() {
+            if (this.questionnaireResponseId) {
+                window.location.href = `/portfolio/presentation?prospect_id=${this.prospectId}`;
+            } else {
+                showToast('No questionnaire response found for this prospect', 'warning');
             }
         },
 
